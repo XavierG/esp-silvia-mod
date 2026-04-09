@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "author": "Anonymous maker",
+  "editor": "wokwi",
+  "parts": [
+    { "type": "board-esp32-s3-devkitc-1", "id": "esp", "top": 0, "left": 0, "attrs": {} },
+    { "type": "wokwi-hx711", "id": "cell1", "top": -218.2, "left": -218.2, "attrs": { "type": "5kg" } },
+    { "type": "wokwi-relay-module", "id": "relay1", "top": 307.4, "left": 412.8, "attrs": {} },
+    { "type": "wokwi-hx711", "id": "cell2", "top": -64.6, "left": -218.2, "attrs": { "type": "5kg" } },
+    { "type": "wokwi-ky-040", "id": "encoder1", "top": -132.7, "left": 70.8, "attrs": {} },
+    { "type": "board-ssd1306", "id": "lcd1", "top": -65.4, "left": 241.6, "attrs": {} },
+    { "type": "wokwi-relay-module", "id": "relay2", "top": 432.2, "left": 412.8, "attrs": {} },
+    { "type": "wokwi-relay-module", "id": "relay3", "top": 557, "left": 412.8, "attrs": {} },
+    { "type": "wokwi-ds18b20", "id": "temp1", "top": 46.87, "left": 512.88, "attrs": {} },
+    { "type": "wokwi-resistor", "id": "r1", "top": -5.65, "left": 508.8, "attrs": { "value": "4700" } },
+    { "type": "wokwi-text", "id": "text1", "top": 316.8, "left": 566.4, "attrs": { "text": "Pompe" } },
+    { "type": "wokwi-text", "id": "text2", "top": 576, "left": 566.4, "attrs": { "text": "Solenoid" } },
+    { "type": "wokwi-text", "id": "text3", "top": 451.2, "left": 576, "attrs": { "text": "Boiler" } }
+  ],
+  "connections": [
+    [ "esp:TX", "$serialMonitor:RX", "", [] ],
+    [ "esp:RX", "$serialMonitor:TX", "", [] ],
+    
+    [ "lcd1:SDA", "esp:8", "green", [ "h-108.4", "v259.4" ] ],
+    [ "lcd1:SCL", "esp:9", "green", [ "h-118", "v221.1" ] ],
+    [ "lcd1:GND", "esp:GND.1", "black", [] ],
+    [ "lcd1:VCC", "esp:5V", "red", [] ],
+
+    [ "cell1:SCK", "esp:10", "gold", [ "h-38.4", "v210.4", "h288" ] ],
+    [ "cell2:SCK", "cell1:SCK", "gold", [] ],
+    [ "cell1:DT", "esp:11", "green", [ "h-19.2", "v229.9", "h220.8" ] ],
+    [ "cell2:DT", "esp:12", "green", [ "h-28.8", "v85.9" ] ],
+    [ "cell1:GND", "esp:GND.1", "black", [] ],
+    [ "cell1:VCC", "esp:5V", "red", [] ],
+
+    [ "encoder1:CLK", "esp:6", "green", [ "h48", "v105.6" ] ],
+    [ "encoder1:DT", "esp:5", "green", [ "h38.4", "v105.7" ] ],
+    [ "encoder1:SW", "esp:7", "green", [ "h28.8", "v105.7" ] ],
+    [ "encoder1:VCC", "esp:5V", "red", [] ],
+    [ "encoder1:GND", "esp:GND.1", "black", [] ],
+
+    [ "relay1:IN", "esp:17", "green", [ "h-115.2", "v-317" ] ],
+    [ "relay2:IN", "esp:2", "green", [ "h-134.4", "v-384.2" ] ],
+    [ "relay3:IN", "esp:16", "green", [ "h-9.6", "v537.8" ] ],
+    [ "relay1:VCC", "esp:5V", "red", [] ],
+    [ "relay1:GND", "esp:GND.1", "black", [] ],
+
+    [ "esp:4", "temp1:DQ", "green", [ "h201.6", "v48", "h57.6" ] ],
+    [ "esp:GND.1", "temp1:GND", "black", [] ],
+    [ "esp:5V", "temp1:VCC", "red", [] ],
+    [ "r1:1", "temp1:DQ", "green", [] ],
+    [ "r1:2", "temp1:VCC", "red", [] ]
+  ],
+  "dependencies": {}
+}
