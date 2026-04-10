@@ -1,0 +1,768 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Silvia Profiler</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        espresso: {
+                            900: '#1a1614',
+                            800: '#2c2421',
+                            700: '#423631',
+                            accent: '#d97736' // Crema orange
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            background-color: #1a1614;
+            color: #f3f4f6;
+            font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #2c2421;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #423631;
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #d97736;
+        }
+
+        .tab-active {
+            border-bottom: 2px solid #d97736;
+            color: #d97736;
+        }
+
+        .input-dark {
+            background-color: #2c2421;
+            border: 1px solid #423631;
+            color: #f3f4f6;
+            border-radius: 0.375rem;
+            padding: 0.5rem;
+            width: 100%;
+            focus: outline-none;
+        }
+
+        .input-dark:focus {
+            border-color: #d97736;
+            outline: none;
+            box-shadow: 0 0 0 1px #d97736;
+        }
+
+        .form-label {
+            display: block;
+            font-size: 0.875rem;
+            color: #9ca3af;
+            margin-bottom: 0.25rem;
+            margin-top: 0.75rem;
+        }
+    </style>
+</head>
+
+<body class="h-screen flex flex-col overflow-hidden">
+
+    <!-- Top Navigation -->
+    <header class="bg-espresso-800 border-b border-espresso-700 shadow-md z-10 flex-none">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between items-center h-16">
+                <div class="flex items-center">
+                    <svg class="w-8 h-8 text-espresso-accent mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                        xmlns="http://www.w3.org/2000/svg">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                    </svg>
+                    <span class="font-bold text-xl tracking-wider">SILVIA<span
+                            class="text-espresso-accent">PRO</span></span>
+                </div>
+                <nav class="flex space-x-4 sm:space-x-8">
+                    <button onclick="switchTab('live')" id="tab-live"
+                        class="tab-active px-3 py-2 font-medium transition-colors hover:text-espresso-accent">Live
+                        Dash</button>
+                    <button onclick="switchTab('editor')" id="tab-editor"
+                        class="text-gray-400 px-3 py-2 font-medium transition-colors hover:text-espresso-accent">Profile
+                        Editor</button>
+                    <button onclick="switchTab('history')" id="tab-history"
+                        class="text-gray-400 px-3 py-2 font-medium transition-colors hover:text-espresso-accent">History</button>
+                </nav>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 relative">
+
+        <!-- ========================================== -->
+        <!-- LIVE DASHBOARD VIEW                        -->
+        <!-- ========================================== -->
+        <div id="view-live" class="max-w-6xl mx-auto h-full flex flex-col transition-opacity duration-300">
+
+            <!-- Global Metrics Header -->
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6 flex-none">
+                <div class="bg-espresso-800 p-4 rounded-xl border border-espresso-700">
+                    <div class="text-gray-400 text-sm font-medium mb-1">Profile</div>
+                    <div id="live-profile-name" class="text-xl font-bold text-white truncate">London Strand</div>
+                </div>
+                <div class="bg-espresso-800 p-4 rounded-xl border border-espresso-700">
+                    <div class="text-gray-400 text-sm font-medium mb-1">Dose (In)</div>
+                    <div class="text-xl font-bold text-white"><span id="live-dose">18.0</span> <span
+                            class="text-sm text-gray-500">g</span></div>
+                </div>
+                <div class="bg-espresso-800 p-4 rounded-xl border border-espresso-700">
+                    <div class="text-gray-400 text-sm font-medium mb-1">Yield (Out)</div>
+                    <div class="text-xl font-bold text-espresso-accent"><span id="live-yield">0.0</span> <span
+                            class="text-sm text-gray-500">g</span></div>
+                </div>
+                <div class="bg-espresso-800 p-4 rounded-xl border border-espresso-700">
+                    <div class="text-gray-400 text-sm font-medium mb-1">Current Ratio</div>
+                    <div class="text-xl font-bold text-white">1 : <span id="live-ratio">0.00</span></div>
+                </div>
+            </div>
+
+            <!-- Chart Container -->
+            <div class="bg-espresso-800 p-4 rounded-xl border border-espresso-700 flex-1 min-h-[400px] relative">
+                <canvas id="liveChart"></canvas>
+            </div>
+
+            <!-- Simulation Controls (To mock ESP32 behavior) -->
+            <div class="mt-6 flex gap-4 justify-end">
+                <span class="text-sm text-gray-500 self-center mr-4">Simulation uses "London Strand" profile</span>
+                <button id="btn-simulate" onclick="toggleSimulation()"
+                    class="bg-espresso-accent hover:bg-orange-600 text-white font-bold py-2 px-6 rounded-lg transition-colors shadow-lg">
+                    Start Mock Shot
+                </button>
+            </div>
+        </div>
+
+        <!-- ========================================== -->
+        <!-- PROFILE EDITOR VIEW                        -->
+        <!-- ========================================== -->
+        <div id="view-editor" class="max-w-4xl mx-auto hidden pb-12">
+            <div class="bg-espresso-800 p-6 rounded-xl border border-espresso-700 mb-6">
+                <div class="mb-4 pb-4 border-b border-espresso-700">
+                    <label class="form-label !mt-0">Load Profile to Edit</label>
+                    <select id="profile-selector" class="input-dark font-medium text-espresso-accent"
+                        onchange="loadSelectedProfile()">
+                        <option value="new">-- Create New Profile --</option>
+                        <option value="london_strand">London Strand</option>
+                        <option value="flat_9_bar">Flat 9 Bar</option>
+                    </select>
+                </div>
+                <div class="flex justify-between items-end mb-4">
+                    <div class="w-2/3">
+                        <label class="form-label !mt-0">Profile Name</label>
+                        <input type="text" id="edit-profile-name" class="input-dark text-lg font-bold"
+                            value="New Profile">
+                    </div>
+                    <button
+                        class="bg-espresso-700 hover:bg-espresso-600 text-white py-2 px-4 rounded transition-colors border border-espresso-600"
+                        onclick="alertMsg('Profile Saved to ESP32 Flash!')">
+                        Save Profile
+                    </button>
+                </div>
+            </div>
+
+            <div class="space-y-6">
+                <!-- Phase 1: Preinfusion -->
+                <div class="bg-espresso-800 p-6 rounded-xl border border-espresso-700 relative overflow-hidden">
+                    <div class="absolute top-0 left-0 w-1 h-full bg-blue-500"></div>
+                    <h3 class="text-xl font-bold text-white mb-4 flex items-center">
+                        <span class="bg-blue-500/20 text-blue-400 px-2 py-1 rounded text-sm mr-3">Phase 1</span>
+                        Preinfusion
+                    </h3>
+                    <p class="text-sm text-gray-400 mb-4">Blind phase controlled by pump power. Sets the puck
+                        saturation.</p>
+
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div>
+                            <label class="form-label">Start Power (%)</label>
+                            <input type="number" id="p1-start" class="input-dark" value="10" min="0" max="100">
+                        </div>
+                        <div>
+                            <label class="form-label">End Power (%)</label>
+                            <input type="number" id="p1-end" class="input-dark" value="40" min="0" max="100">
+                        </div>
+                        <div>
+                            <label class="form-label">Transition Time (s)</label>
+                            <input type="number" id="p1-time" class="input-dark" value="4" step="0.1" min="0">
+                        </div>
+                    </div>
+                    <div
+                        class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 bg-espresso-900/50 p-4 rounded-lg border border-espresso-700/50">
+                        <div>
+                            <label class="form-label !mt-0 text-red-400">Exit Condition: Weight (g)</label>
+                            <input type="number" id="p1-exit-weight"
+                                class="input-dark border-red-900/30 focus:border-red-500" value="0.5" step="0.1">
+                        </div>
+                        <div>
+                            <label class="form-label !mt-0 text-red-400">Exit Condition: Max Time (s)</label>
+                            <input type="number" id="p1-exit-time"
+                                class="input-dark border-red-900/30 focus:border-red-500" value="12" step="1"
+                                placeholder="Safety timeout">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Phase 2: Hold / Bloom -->
+                <div class="bg-espresso-800 p-6 rounded-xl border border-espresso-700 relative overflow-hidden">
+                    <div class="absolute top-0 left-0 w-1 h-full bg-purple-500"></div>
+                    <h3 class="text-xl font-bold text-white mb-4 flex items-center">
+                        <span class="bg-purple-500/20 text-purple-400 px-2 py-1 rounded text-sm mr-3">Phase 2</span>
+                        Hold / Bloom
+                    </h3>
+                    <p class="text-sm text-gray-400 mb-4">Maintains pressure or pauses for blooming. Target is met
+                        dynamically.</p>
+
+                    <div class="mb-4 w-1/3">
+                        <label class="form-label">Control Mode</label>
+                        <select id="p2-mode" class="input-dark">
+                            <option value="power">Pump Power (%)</option>
+                            <option value="flow" selected>Flow Rate (g/s)</option>
+                        </select>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div>
+                            <label class="form-label">Start Value</label>
+                            <input type="number" id="p2-start" class="input-dark" value="0" step="0.1">
+                        </div>
+                        <div>
+                            <label class="form-label">End Value</label>
+                            <input type="number" id="p2-end" class="input-dark" value="2.0" step="0.1">
+                        </div>
+                        <div>
+                            <label class="form-label">Transition Time (s)</label>
+                            <input type="number" id="p2-time" class="input-dark" value="5" step="0.1">
+                        </div>
+                    </div>
+                    <div
+                        class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 bg-espresso-900/50 p-4 rounded-lg border border-espresso-700/50">
+                        <div>
+                            <label class="form-label !mt-0 text-red-400">Exit Condition: Weight (g)</label>
+                            <input type="number" id="p2-exit-weight"
+                                class="input-dark border-red-900/30 focus:border-red-500" value="15.0" step="0.1">
+                        </div>
+                        <div>
+                            <label class="form-label !mt-0 text-red-400">Exit Condition: Max Time (s)</label>
+                            <input type="number" id="p2-exit-time"
+                                class="input-dark border-red-900/30 focus:border-red-500" value="10" step="1">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Phase 3: Extraction -->
+                <div class="bg-espresso-800 p-6 rounded-xl border border-espresso-700 relative overflow-hidden">
+                    <div class="absolute top-0 left-0 w-1 h-full bg-espresso-accent"></div>
+                    <h3 class="text-xl font-bold text-white mb-4 flex items-center">
+                        <span class="bg-orange-500/20 text-espresso-accent px-2 py-1 rounded text-sm mr-3">Phase
+                            3</span> Extraction
+                    </h3>
+                    <p class="text-sm text-gray-400 mb-4">The final taper. Ends automatically when target ratio is
+                        reached.</p>
+
+                    <div class="mb-4 w-1/3">
+                        <label class="form-label">Control Mode</label>
+                        <select id="p3-mode" class="input-dark">
+                            <option value="power" selected>Pump Power (%)</option>
+                            <option value="flow">Flow Rate (g/s)</option>
+                        </select>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div>
+                            <label class="form-label">Start Value</label>
+                            <input type="number" id="p3-start" class="input-dark" value="80">
+                        </div>
+                        <div>
+                            <label class="form-label">End Value</label>
+                            <input type="number" id="p3-end" class="input-dark" value="50">
+                        </div>
+                        <div>
+                            <label class="form-label">Transition Time (s)</label>
+                            <input type="number" id="p3-time" class="input-dark" value="15" step="0.1">
+                        </div>
+                    </div>
+                    <div class="mt-4 bg-espresso-900/50 p-4 rounded-lg border border-espresso-700/50">
+                        <p class="text-sm text-gray-400 italic">Exit condition is managed globally by the hardware based
+                            on Target Ratio (e.g., 1:2.0).</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ========================================== -->
+        <!-- HISTORY VIEW                               -->
+        <!-- ========================================== -->
+        <div id="view-history" class="max-w-7xl mx-auto hidden h-full flex-col lg:flex-row gap-6">
+            <!-- Shot List -->
+            <div class="w-full lg:w-1/3 flex flex-col gap-3">
+                <h2 class="text-xl font-bold text-white mb-2">Last 5 Shots</h2>
+                <div id="history-list" class="flex flex-col gap-3 overflow-y-auto pr-2">
+                    <!-- Javascript will populate this -->
+                </div>
+            </div>
+
+            <!-- History Detail & Graph -->
+            <div class="w-full lg:w-2/3 flex flex-col">
+                <div
+                    class="bg-espresso-800 p-4 rounded-t-xl border border-b-0 border-espresso-700 flex justify-between items-center bg-gradient-to-r from-espresso-800 to-espresso-900">
+                    <div>
+                        <h3 id="hist-profile" class="text-xl font-bold text-white">Select a shot</h3>
+                        <p id="hist-date" class="text-sm text-gray-400">--</p>
+                    </div>
+                    <div class="text-right flex gap-6">
+                        <div>
+                            <div class="text-xs text-gray-400">In</div>
+                            <div id="hist-in" class="font-bold text-white">-- g</div>
+                        </div>
+                        <div>
+                            <div class="text-xs text-gray-400">Out</div>
+                            <div id="hist-out" class="font-bold text-espresso-accent">-- g</div>
+                        </div>
+                        <div>
+                            <div class="text-xs text-gray-400">Time</div>
+                            <div id="hist-time" class="font-bold text-white">-- s</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="bg-espresso-800 p-4 rounded-b-xl border border-espresso-700 flex-1 min-h-[400px] relative">
+                    <canvas id="historyChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Custom Alert Modal -->
+    <div id="custom-alert"
+        class="fixed inset-0 bg-black/60 hidden items-center justify-center z-50 opacity-0 transition-opacity">
+        <div class="bg-espresso-800 border border-espresso-700 p-6 rounded-xl shadow-2xl max-w-sm w-full transform scale-95 transition-transform duration-200"
+            id="custom-alert-box">
+            <h3 class="text-lg font-bold text-white mb-2">Notification</h3>
+            <p id="custom-alert-msg" class="text-gray-300 mb-6"></p>
+            <button onclick="closeAlert()"
+                class="w-full bg-espresso-accent hover:bg-orange-600 text-white font-bold py-2 px-4 rounded transition-colors">OK</button>
+        </div>
+    </div>
+
+    <script>
+        // ==========================================
+        // UI & NAVIGATION LOGIC
+        // ==========================================
+        function switchTab(tabId) {
+            // Hide all views
+            document.getElementById('view-live').classList.add('hidden');
+            document.getElementById('view-editor').classList.add('hidden');
+            document.getElementById('view-history').classList.add('hidden');
+
+            // Reset tab styling
+            document.querySelectorAll('nav button').forEach(btn => {
+                btn.classList.remove('tab-active', 'text-espresso-accent');
+                btn.classList.add('text-gray-400');
+            });
+
+            // Show active view & style tab
+            document.getElementById('view-' + tabId).classList.remove('hidden');
+            document.getElementById('tab-' + tabId).classList.add('tab-active');
+            document.getElementById('tab-' + tabId).classList.remove('text-gray-400');
+
+            if (tabId === 'history' && !historyChartInit) {
+                renderHistoryChart();
+                loadHistoryShot(0); // Load latest shot by default
+            }
+        }
+
+        function alertMsg(msg) {
+            const modal = document.getElementById('custom-alert');
+            const box = document.getElementById('custom-alert-box');
+            document.getElementById('custom-alert-msg').innerText = msg;
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+            setTimeout(() => {
+                modal.classList.remove('opacity-0');
+                box.classList.remove('scale-95');
+            }, 10);
+        }
+
+        function closeAlert() {
+            const modal = document.getElementById('custom-alert');
+            const box = document.getElementById('custom-alert-box');
+            modal.classList.add('opacity-0');
+            box.classList.add('scale-95');
+            setTimeout(() => {
+                modal.classList.add('hidden');
+                modal.classList.remove('flex');
+            }, 200);
+        }
+
+        // ==========================================
+        // PROFILE EDITOR LOGIC
+        // ==========================================
+        const mockProfilesDB = {
+            "new": {
+                name: "New Profile",
+                p1: { start: 10, end: 40, time: 4, exitW: 0.5, exitT: 12 },
+                p2: { mode: "flow", start: 0, end: 2.0, time: 5, exitW: 15.0, exitT: 10 },
+                p3: { mode: "power", start: 80, end: 50, time: 15 }
+            },
+            "london_strand": {
+                name: "London Strand",
+                p1: { start: 10, end: 40, time: 4, exitW: 0.5, exitT: 12 },
+                p2: { mode: "power", start: 0, end: 0, time: 6, exitW: 3.0, exitT: 15 }, // Bloom
+                p3: { mode: "power", start: 80, end: 50, time: 20 } // Taper
+            },
+            "flat_9_bar": {
+                name: "Flat 9 Bar",
+                p1: { start: 50, end: 80, time: 2, exitW: 1.0, exitT: 8 },
+                p2: { mode: "power", start: 80, end: 80, time: 10, exitW: 20.0, exitT: 15 },
+                p3: { mode: "power", start: 80, end: 80, time: 15 }
+            }
+        };
+
+        function loadSelectedProfile() {
+            const selector = document.getElementById('profile-selector');
+            const profileId = selector.value;
+            const data = mockProfilesDB[profileId];
+
+            if (!data) return;
+
+            // Load Global
+            document.getElementById('edit-profile-name').value = data.name;
+
+            // Load Phase 1
+            document.getElementById('p1-start').value = data.p1.start;
+            document.getElementById('p1-end').value = data.p1.end;
+            document.getElementById('p1-time').value = data.p1.time;
+            document.getElementById('p1-exit-weight').value = data.p1.exitW;
+            document.getElementById('p1-exit-time').value = data.p1.exitT;
+
+            // Load Phase 2
+            document.getElementById('p2-mode').value = data.p2.mode;
+            document.getElementById('p2-start').value = data.p2.start;
+            document.getElementById('p2-end').value = data.p2.end;
+            document.getElementById('p2-time').value = data.p2.time;
+            document.getElementById('p2-exit-weight').value = data.p2.exitW;
+            document.getElementById('p2-exit-time').value = data.p2.exitT;
+
+            // Load Phase 3
+            document.getElementById('p3-mode').value = data.p3.mode;
+            document.getElementById('p3-start').value = data.p3.start;
+            document.getElementById('p3-end').value = data.p3.end;
+            document.getElementById('p3-time').value = data.p3.time;
+        }
+
+
+        // ==========================================
+        // CHART.JS CONFIGURATION (Common config)
+        // ==========================================
+        Chart.defaults.color = '#9ca3af';
+        Chart.defaults.font.family = 'ui-sans-serif, system-ui, sans-serif';
+
+        const chartOptions = {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            animation: false, // Disable for live streaming performance
+            elements: { point: { radius: 0 } }, // Hide points for clean curves
+            plugins: {
+                legend: { position: 'top', labels: { usePointStyle: true, boxWidth: 8 } },
+                tooltip: { backgroundColor: 'rgba(44, 36, 33, 0.9)', titleColor: '#fff', padding: 10, cornerRadius: 8 }
+            },
+            scales: {
+                x: {
+                    type: 'linear',
+                    display: true,
+                    title: { display: true, text: 'Time (s)', color: '#6b7280' },
+                    grid: { color: '#423631', drawBorder: false },
+                    min: 0,
+                    max: 35 // Auto adjust later
+                },
+                yPower: {
+                    type: 'linear', display: true, position: 'left',
+                    title: { display: true, text: 'Pump Power (%)', color: '#6b7280' },
+                    min: 0, max: 100,
+                    grid: { color: '#423631', drawBorder: false }
+                },
+                yFlow: {
+                    type: 'linear', display: true, position: 'right',
+                    title: { display: true, text: 'Flow (g/s)', color: '#3b82f6' },
+                    min: 0, max: 8,
+                    grid: { drawOnChartArea: false } // Prevent grid line overlap
+                },
+                yTemp: {
+                    type: 'linear', display: true, position: 'right',
+                    title: { display: true, text: 'Temp (°C)', color: '#ef4444' },
+                    min: 80, max: 105,
+                    grid: { drawOnChartArea: false }
+                }
+            }
+        };
+
+        // ==========================================
+        // LIVE DASHBOARD (WITH ESP32 MOCK SIMULATOR)
+        // ==========================================
+        let liveChart;
+        let chartData = {
+            labels: [], // Time
+            datasets: [
+                { label: 'Pump %', data: [], borderColor: '#d97736', backgroundColor: 'rgba(217, 119, 54, 0.1)', yAxisID: 'yPower', fill: true, tension: 0.4, borderWidth: 2 },
+                { label: 'Flow (g/s)', data: [], borderColor: '#3b82f6', yAxisID: 'yFlow', tension: 0.4, borderWidth: 3 },
+                { label: 'Temp (°C)', data: [], borderColor: '#ef4444', yAxisID: 'yTemp', tension: 0.4, borderWidth: 2, borderDash: [5, 5] },
+                { label: 'Target (%)', data: [], borderColor: '#ffffff', yAxisID: 'yPower', tension: 0, borderWidth: 2, borderDash: [4, 4] }
+            ]
+        };
+
+        function initLiveChart() {
+            const ctx = document.getElementById('liveChart').getContext('2d');
+            liveChart = new Chart(ctx, { type: 'line', data: chartData, options: chartOptions });
+        }
+        initLiveChart();
+
+        // Simulator State
+        let simInterval;
+        let isSimulating = false;
+        let simTime = 0;
+        let simYield = 0;
+        const DOSE = 18.0;
+
+        function toggleSimulation() {
+            const btn = document.getElementById('btn-simulate');
+            if (isSimulating) {
+                clearInterval(simInterval);
+                btn.innerText = "Start Mock Shot";
+                btn.classList.replace('bg-red-600', 'bg-espresso-accent');
+                isSimulating = false;
+            } else {
+                // Reset Data
+                chartData.labels = [];
+                chartData.datasets.forEach(d => d.data = []);
+                simTime = 0;
+                simYield = 0;
+                liveChart.options.scales.x.max = 35;
+                liveChart.update();
+
+                document.getElementById('live-yield').innerText = "0.0";
+                document.getElementById('live-ratio').innerText = "0.00";
+
+                btn.innerText = "Stop Shot";
+                btn.classList.replace('bg-espresso-accent', 'bg-red-600');
+                isSimulating = true;
+
+                // Run 10Hz loop
+                simInterval = setInterval(simulationTick, 100);
+            }
+        }
+
+        function simulationTick() {
+            simTime += 0.1;
+
+            // Mock Physics/Logic based on "London Strand" profile (Preinfusion -> Bloom -> Taper)
+            let power = 0, flow = 0, temp = 93.5, targetPower = 0;
+
+            // Phase 1: Preinfusion (0 - 4s)
+            if (simTime <= 4.0) {
+                targetPower = 10 + (30 * (simTime / 4.0)); // Ramp 10 to 40
+                power = targetPower;
+                flow = 0; // No flow out yet
+                temp = 93.5 - (simTime * 0.1); // Slight temp drop as cold water enters
+            }
+            // Phase 2: Hold/Bloom (4 - 10s)
+            else if (simTime <= 10.0) {
+                targetPower = 0;
+                power = targetPower; // Pump off
+                flow = simTime < 4.5 ? 0.5 : 0; // Drops of preinfusion falling
+                temp = 93.1 + ((simTime - 4) * 0.05); // Boiler recovering
+            }
+            // Phase 3: Extraction (10s onwards)
+            else {
+                let t = simTime - 10;
+                targetPower = Math.max(50, 80 - (t * 1.5)); // Start 80, taper down to 50
+                power = targetPower;
+                flow = Math.min(2.5, t * 0.8); // Flow ramps up then stabilizes, drops slightly with power
+                if (t > 10) flow = flow * (power / 80); // Simulate flow dropping with power taper
+                temp = 93.4 - (t * 0.08); // Steady slow decline during extraction
+            }
+
+            // Add randomness/noise to make it look real
+            if (power > 0) power += (Math.random() * 2 - 1);
+            if (flow > 0) flow += (Math.random() * 0.2 - 0.1);
+            temp += (Math.random() * 0.1 - 0.05);
+
+            // Integrate Flow to Yield
+            simYield += (flow * 0.1);
+
+            // Update DOM Header
+            document.getElementById('live-yield').innerText = simYield.toFixed(1);
+            document.getElementById('live-ratio').innerText = (simYield / DOSE).toFixed(2);
+
+            // Update Chart Arrays
+            chartData.labels.push(simTime.toFixed(1));
+            chartData.datasets[0].data.push(power);
+            chartData.datasets[1].data.push(Math.max(0, flow));
+            chartData.datasets[2].data.push(temp);
+            chartData.datasets[3].data.push(targetPower);
+
+            // Auto-scroll X axis if needed
+            if (simTime > liveChart.options.scales.x.max) {
+                liveChart.options.scales.x.max += 5;
+            }
+
+            liveChart.update();
+
+            // Hardware Exit Condition (Target Ratio 1:2.0 -> 36g)
+            if (simYield >= 36.0) {
+                toggleSimulation(); // Stop
+                alertMsg("Shot Finished! Target Yield 36.0g reached.");
+            }
+        }
+
+        /* ========================================================
+        NOTE FOR REAL ESP32 IMPLEMENTATION:
+        Instead of the simulationTick() above, you would use WebSockets:
+        
+        const socket = new WebSocket('ws://' + window.location.hostname + '/ws');
+        socket.onmessage = function(event) {
+            const data = JSON.parse(event.data);
+            // data = { time: 12.5, power: 65, flow: 2.1, temp: 93.2, yield: 15.4 }
+            
+            // Update UI arrays and call liveChart.update() here
+        };
+        ========================================================
+        */
+
+
+        // ==========================================
+        // HISTORY VIEW LOGIC (MOCK DATA)
+        // ==========================================
+        let historyChartInit = false;
+        let historyChart;
+
+        // Mock History Data saved on ESP32 Flash
+        const mockHistory = [
+            { id: 1, name: "London Strand", date: "Today, 07:30 AM", dose: 18.0, yield: 36.2, time: 28.5 },
+            { id: 2, name: "London Strand", date: "Yesterday, 08:15 AM", dose: 18.0, yield: 35.9, time: 27.8 },
+            { id: 3, name: "Flat 9 Bar", date: "Yesterday, 02:00 PM", dose: 18.0, yield: 40.1, time: 22.0 },
+            { id: 4, name: "Slayer Style", date: "Oct 24, 07:45 AM", dose: 20.0, yield: 45.0, time: 45.2 },
+            { id: 5, name: "London Strand", date: "Oct 23, 08:00 AM", dose: 18.0, yield: 36.5, time: 29.1 }
+        ];
+
+        function renderHistoryChart() {
+            const ctx = document.getElementById('historyChart').getContext('2d');
+            const hOptions = JSON.parse(JSON.stringify(chartOptions)); // clone options
+            hOptions.animation = true; // Enable animation for history load
+
+            historyChart = new Chart(ctx, {
+                type: 'line',
+                data: { labels: [], datasets: [] },
+                options: hOptions
+            });
+            historyChartInit = true;
+        }
+
+        function populateHistoryList() {
+            const list = document.getElementById('history-list');
+            list.innerHTML = '';
+
+            mockHistory.forEach((shot, index) => {
+                const el = document.createElement('div');
+                el.className = `p-4 rounded-lg border cursor-pointer transition-all ${index === 0 ? 'bg-espresso-700 border-espresso-accent' : 'bg-espresso-800 border-espresso-700 hover:border-gray-500'}`;
+                el.onclick = () => {
+                    // Update active styling
+                    Array.from(list.children).forEach(child => {
+                        child.classList.replace('bg-espresso-700', 'bg-espresso-800');
+                        child.classList.replace('border-espresso-accent', 'border-espresso-700');
+                    });
+                    el.classList.replace('bg-espresso-800', 'bg-espresso-700');
+                    el.classList.replace('border-espresso-700', 'border-espresso-accent');
+                    loadHistoryShot(index);
+                };
+
+                el.innerHTML = `
+                    <div class="flex justify-between items-center mb-1">
+                        <span class="font-bold text-white">${shot.name}</span>
+                        <span class="text-xs text-gray-400">${shot.date}</span>
+                    </div>
+                    <div class="flex gap-4 text-sm">
+                        <span class="text-gray-400"><span class="text-gray-300">${shot.dose}g</span> in</span>
+                        <span class="text-gray-400"><span class="text-espresso-accent">${shot.yield}g</span> out</span>
+                        <span class="text-gray-400"><span class="text-gray-300">${shot.time}s</span></span>
+                    </div>
+                `;
+                list.appendChild(el);
+            });
+        }
+
+        function loadHistoryShot(index) {
+            const shot = mockHistory[index];
+
+            // Update Header
+            document.getElementById('hist-profile').innerText = shot.name;
+            document.getElementById('hist-date').innerText = shot.date;
+            document.getElementById('hist-in').innerText = shot.dose.toFixed(1) + ' g';
+            document.getElementById('hist-out').innerText = shot.yield.toFixed(1) + ' g';
+            document.getElementById('hist-time').innerText = shot.time.toFixed(1) + ' s';
+
+            // Generate Mock Data arrays for the selected shot
+            const labels = [];
+            const powerData = [];
+            const flowData = [];
+            const tempData = [];
+            const targetData = [];
+
+            for (let t = 0; t <= shot.time; t += 0.5) {
+                labels.push(t.toFixed(1));
+                // Just generating rough curves for visual effect in history
+                let targetP = t < 5 ? 30 : (t < 10 ? 0 : 80 - (t - 10));
+                let p = targetP;
+                let f = t < 8 ? 0 : 2.5 - ((t - 10) * 0.02);
+                let tmp = 93.5 - (t * 0.05);
+
+                targetData.push(targetP);
+                powerData.push(Math.max(0, p + (Math.random() * 2 - 1)));
+                flowData.push(Math.max(0, f + (Math.random() * 0.2 - 0.1)));
+                tempData.push(tmp);
+            }
+
+            // Update Chart
+            historyChart.data = {
+                labels: labels,
+                datasets: [
+                    { label: 'Target (%)', data: targetData, borderColor: '#ffffff', yAxisID: 'yPower', tension: 0, borderWidth: 2, borderDash: [4, 4] },
+                    { label: 'Pump %', data: powerData, borderColor: '#d97736', backgroundColor: 'rgba(217, 119, 54, 0.1)', yAxisID: 'yPower', fill: true, tension: 0.4 },
+                    { label: 'Flow (g/s)', data: flowData, borderColor: '#3b82f6', yAxisID: 'yFlow', tension: 0.4 },
+                    { label: 'Temp (°C)', data: tempData, borderColor: '#ef4444', yAxisID: 'yTemp', tension: 0.4, borderDash: [5, 5] }
+                ]
+            };
+            historyChart.options.scales.x.max = Math.ceil(shot.time / 5) * 5;
+            historyChart.update();
+        }
+
+        // Initialize History list on load
+        populateHistoryList();
+
+    </script>
+</body>
+
+</html>

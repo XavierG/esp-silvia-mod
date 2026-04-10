@@ -26,7 +26,7 @@
 #define MAX_SAFE_TEMP 105.0
 #define DEFAULT_PREINF_TIME 1
 #define DEFAULT_BLOOM_TIME 1
-#define DEFAULT_FLOW_STOP_FACTOR 1.5
+#define DEFAULT_FLOW_STOP_FACTOR 3.0
 #define MIN_PUMP_PERCENTAGE 30
 #define DEFAULT_SOAK_WEIGHT 0.5
 #define DEFAULT_SOAK_POWER 80
@@ -46,8 +46,6 @@
 #define LONG_PRESS_TIMING 350        // Long press timing in ms
 #define FORCE_HEATER_TIME                                                      \
   2000 // ms after extraction starts where the heater needs to be fully on
-#define FORCE_HEATER_PRETIME                                                   \
-  1000 // ms before extraction where the heater needs to be fully on
 
 #define EMA_ALPHA_FLOW                                                         \
   0.3 // Exponential Moving Average smoothing factor for Flow rate measurement
@@ -56,3 +54,7 @@
 #define EMA_ALPHA_TEMP                                                         \
   0.7 // Exponential Moving Average smoothing factor for temperature reading for
       // the PID
+
+// Scale setup
+#define SCALE_A 42
+#define SCALE_B 42

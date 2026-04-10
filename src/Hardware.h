@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Arduino.h>
+#include <RBDdimmer.h>
 
 void initHardware();
 void waitForTemperatureSensor();
@@ -11,3 +12,4 @@ void setHeater(bool state);
 void handleHeater();
 void updateWeight();
 void IRAM_ATTR handleButtonInterrupt();
+extern dimmerLamp pumpDimmer;

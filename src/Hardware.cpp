@@ -1,8 +1,15 @@
 #include "Hardware.h"
+#include "Config.h"
+#include "FelicitaScale.h"
 #include "Globals.h"
-#include <RBDdimmer.h>
+
 
 dimmerLamp pumpDimmer(DIMMER_OUT_PIN, DIMMER_ZC_PIN);
+
+// BLE Scale Instances
+FelicitaScanner bleScanner;
+FelicitaScale bleScale;
+bool usingBleScale = false;
 
 void IRAM_ATTR handleButtonInterrupt() {
   unsigned long now = millis();
@@ -30,8 +37,9 @@ void initHardware() {
   pinMode(SSR_HEATER, OUTPUT);
   pinMode(ENCODER_SW, INPUT_PULLUP);
 
-  pumpDimmer.begin(NORMAL_MODE, OFF);
-
+  pumpDimmer.begin(NORMAL_MODE, ON); 
+  pumpDimmer.setPower(100); // Set dimmer 100% by default to ensure manual operation of the pump
+  
   attachInterrupt(digitalPinToInterrupt(ENCODER_SW), handleButtonInterrupt,
                   CHANGE);
 
@@ -41,8 +49,10 @@ void initHardware() {
 
   scaleA.begin(HX_A_DOUT, HX_SCK);
   scaleB.begin(HX_B_DOUT, HX_SCK);
-  scaleA.set_scale(42.0);
-  scaleB.set_scale(42.0);
+  scaleA.set_scale(SCALE_A);
+  scaleB.set_scale(SCALE_B);
+
+  bleScanner.startScan();
 
   ESP32Encoder::useInternalWeakPullResistors = UP;
   encoder.attachFullQuad(ENCODER_CLK, ENCODER_DT);
@@ -50,6 +60,7 @@ void initHardware() {
   windowStartTime = millis();
   myPID.SetOutputLimits(0, PID_WINDOW_SIZE_MS);
   myPID.SetMode(QuickPID::Control::automatic);
+
 }
 
 void waitForTemperatureSensor() {
@@ -90,7 +101,60 @@ void setPumpPercentage(uint8_t percentage) {
 void setValve(bool state) { digitalWrite(SSR_VALVE, state ? HIGH : LOW); }
 void setHeater(bool state) { digitalWrite(SSR_HEATER, state ? HIGH : LOW); }
 
+void tareScales() {
+  if (usingBleScale) {
+    bleScale.tare();
+    unsigned long waitStart = millis();
+    while (millis() - waitStart <
+           1500) { // Check if scale is actually correctly tared before moving
+                   // on (block brewing to see the weight of the cup)
+      bleScale.update();
+      if (millis() - waitStart > 250 && abs(bleScale.getWeight()) <= 0.2) {
+        break;
+      }
+      delay(10);
+    }
+  } else {
+    if (scaleA.is_ready()) {
+      offsetA = scaleA.get_units(3); // 3 samples for a stable tare (~300ms)
+    }
+    if (scaleB.is_ready()) {
+      offsetB = scaleB.get_units(3);
+    }
+  }
+}
+
 void updateWeight() {
+  // 1. Handle BLE Scale Connection & Fallback Logic
+  if (bleScanner.hasFoundDevice() && !usingBleScale) {
+    bleScale.init(bleScanner.getFoundAddress());
+    if (bleScale.connect()) {
+      usingBleScale = true;
+      bleScanner.stopScan();
+    } else {
+      // If connection failed, reset scanner and try finding it again
+      bleScanner.reset();
+      bleScanner.startScan();
+    }
+  }
+
+  // 2. Read from BLE Scale if connected
+  if (usingBleScale) {
+    bleScale.update();
+    if (bleScale.isConnected()) {
+      currentWeight = bleScale.getWeight();
+      rawCurrentWeight = currentWeight;
+      lastScaleReadTime = millis();
+      return; // Exit early, skipping HX711 completely
+    } else {
+      // Lost connection, fallback to HX711 and restart scan
+      usingBleScale = false;
+      bleScanner.reset();
+      bleScanner.startScan();
+    }
+  }
+
+  // 3. Fallback to HX711 if BLE is not ready/connected
   if (scaleA.is_ready() && scaleB.is_ready()) {
     float rawA = scaleA.get_units(1);
     float rawB = scaleB.get_units(1);

@@ -1,28 +1,36 @@
 /* Todo:
 
 Current:
-- Pump dimmer
-- why do I have the warm up screen after the splashscreen even if temp ok
 - Which power supply?
+- PI For pump % in flow control
+- Might need to implement a stopCondition function to test the end of the shot
 - Check the nuber of available gpio
+- USe the HX711_ADC.h library?
+- Reviewx pump percentage function: if machine stopped, the dimmer needs to be
+fully on.
+- Kickstart" a pump by setting it to 100 for a few hundred milliseconds
+before dropping it down
 
 Before Production:
-- Test implementation of the FORCE_HEATER_TIME and FORCE_HEATER_PRETIME variable
+- Test implementation of the FORCE_HEATER_TIME variable
 - Update scale initials parameters / put them in define
 - Update refresh rate
 - Update the line:   vTaskDelay(pdMS_TO_TICKS(5)); to 1 only to avoid slow
 computation
 - Integrate PID close to XMP7100 values
 https://gemini.google.com/app/a45d001951bd94d5
+- Test minimum pump percentage
 
 
-Roadmap:
+Roadmap and low priority:
 - Water level sensor
 - Possible to migrate to a touch screen?
 - Web interface
 - Integration HA for machine readiness notification
 - Store the last 5 shots in memory as an history? Available in the settings as
 an entry?
+- why do I have the warm up screen after the splashscreen even if temp ok
+
 
 */
 
@@ -32,6 +40,7 @@ an entry?
 
 // --- Forward Declarations ---
 void loadSettings();
+void tareScales();
 void updateWeight();
 void handleScreensaver();
 void handleButtonLogic();
@@ -204,6 +213,24 @@ void handleScreensaver() {
   }
 }
 
+void startBrew() {
+  tareScales();
+
+  currentWeight = 0;
+  rawCurrentWeight = 0;
+  currentFlowRate = 0;
+  previousWeight = 0;
+  previousRawWeight = 0;
+  previousWeightTime = millis();
+
+  brewStartTime = millis();
+  bloomStartTime = 0;
+  extractStartTime = 0;
+  setValve(true);
+  currentState = EXTRACTION;
+  currentBrewPhase = SOAK;
+}
+
 void updateBrewCycle() {
   if (currentState != EXTRACTION && currentState != DONE)
     return;
@@ -224,7 +251,7 @@ void updateBrewCycle() {
 
   if (currentState == EXTRACTION &&
       currentWeight >=
-          ((coffeeWeight * ratio) - (currentFlowRate * flowStopFactor))) {
+          ((coffeeWeight * ratio) - (currentFlowRate * flowStopFactor * 0.5))) {
     stopShot();
     return;
   }
@@ -299,29 +326,9 @@ void updateBrewCycle() {
   }
 }
 
-void startBrew() {
-  if (scaleA.is_ready())
-    offsetA = scaleA.get_units(1);
-  if (scaleB.is_ready())
-    offsetB = scaleB.get_units(1);
-
-  currentWeight = 0;
-  rawCurrentWeight = 0;
-  currentFlowRate = 0;
-  previousWeight = 0;
-  previousRawWeight = 0;
-  previousWeightTime = millis();
-
-  brewStartTime = millis();
-  bloomStartTime = 0;
-  extractStartTime = 0;
-  setValve(true);
-  currentState = EXTRACTION;
-  currentBrewPhase = SOAK;
-}
-
 void stopShot() {
-  setPumpPercentage(0);
+  setPump(false);
+  pumpDimmer.setPower(100);
   setValve(false);
   lastShotTime = (millis() - brewStartTime) / 1000.0;
   doneStartTime = millis();
@@ -364,7 +371,7 @@ void handleShortClick() {
     encoder.setCount(coffeeWeight * 40);
     break;
   case HOME:
-    prefs.putFloat("dBeans", coffeeWeight);
+    prefs.putFloat("dCoffeeWeight", coffeeWeight);
     currentState = SET_RATIO;
     encoder.setCount(ratio * 40);
     break;
@@ -389,10 +396,7 @@ void handleShortClick() {
     } else if (activeSettings[currentSettingIndex] == SCALE_MODE) {
       // Explicit Tare with UI Feedback
       isTaring = true;
-      if (scaleA.is_ready())
-        offsetA = scaleA.get_units(5); // 5 samples for a stable tare (~500ms)
-      if (scaleB.is_ready())
-        offsetB = scaleB.get_units(5);
+      tareScales();
       isTaring = false;
     } else {
       isEditingValue = !isEditingValue;
