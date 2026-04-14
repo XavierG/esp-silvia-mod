@@ -38,7 +38,7 @@
 #define TEMP_MARGIN 2 // Temperature below which the state goes back to warming
 #define TEMP_UPDATE_INTERVAL_MS 1000 // How often to read DS18B20
 #define PID_WINDOW_SIZE_MS 2000      // Slow PWM window for heater
-#define UI_REFRESH_INTERVAL_MS 50    // ms screen refresh rate (33ms about 30Hz)
+#define UI_REFRESH_INTERVAL_MS 50    // ms screen refresh rate
 #define SCREENSAVER_TIMEOUT_MS 60000 // 1 minute sleep timeout
 #define SPLASH_SCREEN_DELAY_MS 500   // Splash screen minimum time
 #define DRIP_CATCH_DELAY_MS 3500     // Auto-exit DONE state

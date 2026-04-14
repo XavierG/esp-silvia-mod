@@ -3,7 +3,6 @@
 #include "FelicitaScale.h"
 #include "Globals.h"
 
-
 dimmerLamp pumpDimmer(DIMMER_OUT_PIN, DIMMER_ZC_PIN);
 
 // BLE Scale Instances
@@ -14,7 +13,7 @@ bool usingBleScale = false;
 void IRAM_ATTR handleButtonInterrupt() {
   unsigned long now = millis();
   if (digitalRead(ENCODER_SW) == LOW) {
-    if (now - releaseTime > 10) {
+    if (now - releaseTime > 20) {
       pressTime = now;
       isButtonPressed = true;
       isLongPressHandled = false;
@@ -37,9 +36,10 @@ void initHardware() {
   pinMode(SSR_HEATER, OUTPUT);
   pinMode(ENCODER_SW, INPUT_PULLUP);
 
-  pumpDimmer.begin(NORMAL_MODE, ON); 
-  pumpDimmer.setPower(100); // Set dimmer 100% by default to ensure manual operation of the pump
-  
+  pumpDimmer.begin(NORMAL_MODE, ON);
+  pumpDimmer.setPower(
+      100); // Set dimmer 100% by default to ensure manual operation of the pump
+
   attachInterrupt(digitalPinToInterrupt(ENCODER_SW), handleButtonInterrupt,
                   CHANGE);
 
@@ -47,10 +47,23 @@ void initHardware() {
   delay(50);
   thermo.begin();
 
-  scaleA.begin(HX_A_DOUT, HX_SCK);
-  scaleB.begin(HX_B_DOUT, HX_SCK);
-  scaleA.set_scale(SCALE_A);
-  scaleB.set_scale(SCALE_B);
+  // --- HX711_ADC Migration: Initialization ---
+  scaleA.begin();
+  scaleB.begin();
+
+  // Pullup resistor to avoid crazy reading if no HX711 module connected.
+  pinMode(HX_A_DOUT, INPUT_PULLUP);
+  pinMode(HX_B_DOUT, INPUT_PULLUP);
+
+  // start(stabilizing_time_ms, tare_on_boot)
+  // We use 100ms and false so it doesn't block the UI/boot process
+  // unnecessarily.
+  scaleA.start(100, false);
+  scaleB.start(100, false);
+
+  // Set the calibration factors (replaces set_scale())
+  scaleA.setCalFactor(SCALE_A);
+  scaleB.setCalFactor(SCALE_B);
 
   bleScanner.startScan();
 
@@ -60,7 +73,6 @@ void initHardware() {
   windowStartTime = millis();
   myPID.SetOutputLimits(0, PID_WINDOW_SIZE_MS);
   myPID.SetMode(QuickPID::Control::automatic);
-
 }
 
 void waitForTemperatureSensor() {
@@ -115,53 +127,94 @@ void tareScales() {
       delay(10);
     }
   } else {
-    if (scaleA.is_ready()) {
-      offsetA = scaleA.get_units(3); // 3 samples for a stable tare (~300ms)
-    }
-    if (scaleB.is_ready()) {
-      offsetB = scaleB.get_units(3);
-    }
+    scaleA.tareNoDelay();
+    scaleB.tareNoDelay();
   }
 }
 
 void updateWeight() {
-  // 1. Handle BLE Scale Connection & Fallback Logic
-  if (bleScanner.hasFoundDevice() && !usingBleScale) {
-    bleScale.init(bleScanner.getFoundAddress());
-    if (bleScale.connect()) {
-      usingBleScale = true;
-      bleScanner.stopScan();
+  unsigned long now = millis();
+  static unsigned long lastBleScanAttempt = 0;
+  static unsigned long lastSeenConnected = 0;
+
+  // 1. Throttled BLE Connection Logic
+  if (!usingBleScale && (now - lastBleScanAttempt > 1000)) {
+    lastBleScanAttempt = now;
+    if (bleScanner.hasFoundDevice()) {
+      bleScale.init(bleScanner.getFoundAddress());
+      if (bleScale.connect()) {
+        usingBleScale = true;
+        lastSeenConnected = now;
+        bleScanner.stopScan();
+      } else {
+        bleScanner.reset();
+        bleScanner.startScan();
+      }
     } else {
-      // If connection failed, reset scanner and try finding it again
-      bleScanner.reset();
       bleScanner.startScan();
     }
   }
+
+  float incomingRawWeight = 0.0;
+  bool gotNewReading = false;
 
   // 2. Read from BLE Scale if connected
   if (usingBleScale) {
     bleScale.update();
     if (bleScale.isConnected()) {
-      currentWeight = bleScale.getWeight();
-      rawCurrentWeight = currentWeight;
-      lastScaleReadTime = millis();
-      return; // Exit early, skipping HX711 completely
+      lastSeenConnected = now;
+      incomingRawWeight = bleScale.getWeight();
+      gotNewReading = true;
     } else {
-      // Lost connection, fallback to HX711 and restart scan
-      usingBleScale = false;
-      bleScanner.reset();
-      bleScanner.startScan();
+      if (now - lastSeenConnected > 1000) {
+        usingBleScale = false;
+        bleScanner.reset();
+      }
     }
   }
 
   // 3. Fallback to HX711 if BLE is not ready/connected
-  if (scaleA.is_ready() && scaleB.is_ready()) {
-    float rawA = scaleA.get_units(1);
-    float rawB = scaleB.get_units(1);
-    rawCurrentWeight = (rawA - offsetA) + (rawB - offsetB);
-    currentWeight = (currentWeight * (1.0 - EMA_ALPHA_SCALE)) +
-                    (rawCurrentWeight * EMA_ALPHA_SCALE);
-    lastScaleReadTime = millis();
+  if (!usingBleScale) {
+    // Calling update() as frequently as possible is vital for HX711_ADC
+    bool updatedA = scaleA.update();
+    bool updatedB = scaleB.update();
+
+    // Even if only one updated, we take the sum of current available data.
+    // HX711_ADC's getData() returns the last filtered value.
+    if (updatedA || updatedB) {
+      incomingRawWeight = scaleA.getData() + scaleB.getData();
+      gotNewReading = true;
+    }
+  }
+
+  // 4. Global Spike Filter & Value Assignment
+  if (gotNewReading) {
+    static int spikeStreak = 0;
+    // We increase the MAX_PHYSICAL_JUMP slightly to 15g because if both scales
+    // update at once, a real fast change might be > 10g.
+    const float MAX_PHYSICAL_JUMP = 15.0;
+    const int MAX_STREAK = 3;
+
+    float deltaWeight = abs(incomingRawWeight - rawCurrentWeight);
+
+    // SPIKE PROTECTION:
+    // If we see a massive jump, we ignore it unless it persists for 3 frames.
+    // This prevents the pump's electrical EMF from triggering a "Target Weight
+    // Reached" stop.
+    if (deltaWeight > MAX_PHYSICAL_JUMP && spikeStreak < MAX_STREAK) {
+      spikeStreak++;
+      // We do NOT update lastScaleReadTime here, effectively ignoring the
+      // noise.
+      return;
+    } else {
+      spikeStreak = 0;
+      rawCurrentWeight = incomingRawWeight;
+
+      // HX711_ADC is already filtered internally (Moving Average).
+      // BLE scales are also filtered. No further EMA needed.
+      currentWeight = rawCurrentWeight;
+      lastScaleReadTime = now;
+    }
   }
 }
 
@@ -176,7 +229,7 @@ void handleHeater() {
     lastTempRequest = now;
 
     // Safety: Trigger SENSOR_ERROR if NAN, explicit fault bit, or impossible
-    // kitchen temperature
+    // temperature
     if (isnan(currentTemp) || error != 0 || currentTemp < 1) {
       currentState = SENSOR_ERROR;
       setHeater(false);

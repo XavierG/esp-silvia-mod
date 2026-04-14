@@ -2,7 +2,8 @@
 
 // --- Hardware Objects Initialization ---
 U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, U8X8_PIN_NONE);
-HX711 scaleA, scaleB;
+HX711_ADC scaleA(HX_A_DOUT, HX_SCK);
+HX711_ADC scaleB(HX_B_DOUT, HX_SCK);
 Adafruit_MAX31855 thermo(MAX_CS);
 ESP32Encoder encoder;
 Preferences prefs;
@@ -70,7 +71,6 @@ float lastShotWeight = 0, lastShotTime = 0, lastShotRatio = 0;
 String currentProfileStr = "", lastProfileStr = "";
 unsigned long lastUpdate = 0;
 bool warmingOverridden = false;
-float offsetA = 0.0, offsetB = 0.0;
 
 // --- Screensaver Initialization ---
 unsigned long lastActivityTime = 0;
@@ -83,3 +83,39 @@ volatile unsigned long releaseTime = 0;
 volatile bool isButtonPressed = false;
 volatile bool newClickAvailable = false;
 volatile bool isLongPressHandled = false;
+
+// --- Web Server Variables ---
+EspressoProfile currentProfile;
+String availableProfiles[15];
+int numAvailableProfiles = 0;
+int selectedProfileIndex = 0;
+int currentPhaseNum = 1;
+unsigned long lastTelemetryTime = 0;
+unsigned long phaseStartTime = 0;
+
+// --- Active Shot Memory Initialization ---
+float histTime[MAX_TELEMETRY_POINTS];
+float histTargetP[MAX_TELEMETRY_POINTS];
+float histTargetF[MAX_TELEMETRY_POINTS];
+float histPower[MAX_TELEMETRY_POINTS];
+float histFlow[MAX_TELEMETRY_POINTS];
+float histTemp[MAX_TELEMETRY_POINTS];
+int histCount = 0;
+
+// Paris Timezone String: UTC+1, summer time starts last Sunday of March, ends
+// last Sunday of Oct
+const char *TZ_INFO = "CET-1CEST,M3.5.0,M10.5.0/3";
+const char *ntpServer = "pool.ntp.org";
+
+String getTimestamp() {
+  struct tm timeinfo;
+  if (!getLocalTime(&timeinfo)) {
+    return "Time Error";
+  }
+
+  char timeStringBuff[40];
+  // %d = Day (XX), %B = Full Month, %H = 24h, %M = Minutes
+  strftime(timeStringBuff, sizeof(timeStringBuff), "%d %B - %H:%M", &timeinfo);
+
+  return String(timeStringBuff);
+}

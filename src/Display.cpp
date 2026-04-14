@@ -23,10 +23,11 @@ void renderHeader() {
     phaseStr = "Target";
     break;
   case EXTRACTION:
-    if (currentBrewPhase == SOAK)
-      phaseStr = "Soak";
-    else if (currentBrewPhase == BLOOM_PHASE)
-      phaseStr = "Bloom";
+    // Update to match new phase engine from main.cpp
+    if (currentPhaseNum == 1)
+      phaseStr = "Pre-wet";
+    else if (currentPhaseNum == 2)
+      phaseStr = "Hold";
     else
       phaseStr = "Extract";
     break;
@@ -48,7 +49,7 @@ void renderHeader() {
 
 void renderWarming() {
   u8g2.drawBitmap(5, 9, 7, 45, heat_icon_bitmap_54X45);
-  u8g2.setFont(u8g2_font_luBS19_tf); // u8g2_font_luBS19_tf
+  u8g2.setFont(u8g2_font_luBS19_tf);
   int displayTemp = round(currentTemp - tempOffset);
   String tempStr = String(displayTemp) + " \xb0" + "C";
   u8g2.drawStr(57, 40, tempStr.c_str());
@@ -61,24 +62,13 @@ void renderHome() {
 
   u8g2.setFont(u8g2_font_helvR08_tf);
   String lastShotStr = "- none -";
-  switch (lastProfile) {
-  case PROFILE_FLAT:
-    lastProfileStr = "Flat";
-    break;
-  case PROFILE_BLOOMING:
-    lastProfileStr = "Blooming";
-    break;
-  case PROFILE_LONDINIUM:
-    lastProfileStr = "Londinium";
-    break;
-  case PROFILE_SLAYER:
-    lastProfileStr = "Slayer";
-    break;
-  }
-  if (lastShotWeight > 0.1)
-    lastShotStr = lastProfileStr + " - " + String(lastShotWeight, 1) + "g - " +
-                  String(lastShotRatio, 1) + " - " +
+
+  if (lastShotWeight > 0.1) {
+    // Dynamic history string using the loaded profile name
+    lastShotStr = currentProfile.name + " - " + String(lastShotWeight, 1) +
+                  "g - " + String(lastShotRatio, 1) + " - " +
                   String(round(lastShotTime), 0) + "s";
+  }
   u8g2.drawStr((128 - u8g2.getStrWidth(lastShotStr.c_str())) / 2, 61,
                lastShotStr.c_str());
 }
@@ -88,21 +78,11 @@ void renderSetRatio() {
   String val = "1:" + String(ratio, 1);
   u8g2.drawStr((128 - u8g2.getStrWidth(val.c_str())) / 2, 43, val.c_str());
 
-  u8g2.setFont(u8g2_font_helvR08_tf); // u8g2_font_helvR08_tf
-  switch (selectedProfile) {
-  case PROFILE_FLAT:
-    currentProfileStr = "Flat";
-    break;
-  case PROFILE_BLOOMING:
-    currentProfileStr = "Blooming";
-    break;
-  case PROFILE_LONDINIUM:
-    currentProfileStr = "Londinium";
-    break;
-  case PROFILE_SLAYER:
-    currentProfileStr = "Slayer";
-    break;
-  }
+  u8g2.setFont(u8g2_font_helvR08_tf);
+
+  // Dynamically grab the selected profile name
+  String currentProfileStr = currentProfile.name;
+
   u8g2.drawStr((128 - u8g2.getStrWidth(currentProfileStr.c_str())) / 2, 61,
                currentProfileStr.c_str());
 }
@@ -127,16 +107,14 @@ void renderProgressBar(float percent) {
 
 void renderExtraction() {
   // Current weight
-  u8g2.setFont(u8g2_font_luBS19_tf); // u8g2_font_h_elvB18_tf
+  u8g2.setFont(u8g2_font_luBS19_tf);
   String wStr = String(currentWeight, 0) + " g";
   u8g2.drawStr(0, 41, wStr.c_str());
 
   // Pump Percentage Vertical Line
   int lineHeight = 35;
 
-  int fillHeight =
-      (int)((lineHeight) * ((currentPumpPercentage - MIN_PUMP_PERCENTAGE) /
-                            (100.0f - MIN_PUMP_PERCENTAGE)));
+  int fillHeight = (int)((lineHeight) * (currentPumpPercentage / 100.0f));
   if (fillHeight > 0) {
     u8g2.drawLine(72, 50 - fillHeight, 72, 50);
   }
@@ -203,57 +181,11 @@ void renderSettings() {
     switch (item) {
     case PROFILE_SEL:
       label = "Profile";
-      if (selectedProfile == PROFILE_FLAT)
-        val = "Flat";
-      else if (selectedProfile == PROFILE_BLOOMING)
-        val = "Blooming";
-      else if (selectedProfile == PROFILE_SLAYER)
-        val = "Slayer";
-      else
-        val = "Londinium";
-      break;
-    case SOAK_PWR:
-      label = "Soak Power";
-      if (selectedProfile == PROFILE_FLAT)
-        val = String(flatSoakPower) + " %";
-      else if (selectedProfile == PROFILE_BLOOMING)
-        val = String(bloomSoakPower) + " %";
-      else if (selectedProfile == PROFILE_LONDINIUM)
-        val = String(londSoakPower) + " %";
-      else if (selectedProfile == PROFILE_SLAYER)
-        val = String(slaySoakPower) + " %";
-      break;
-    case SOAK_WGHT:
-      label = "Soak Wght";
-      if (selectedProfile == PROFILE_FLAT)
-        val = String(flatSoakWeight, 1) + " g";
-      else if (selectedProfile == PROFILE_BLOOMING)
-        val = String(bloomSoakWeight, 1) + " g";
-      else if (selectedProfile == PROFILE_LONDINIUM)
-        val = String(londSoakWeight, 1) + " g";
-      else if (selectedProfile == PROFILE_SLAYER)
-        val = String(slaySoakWeight, 1) + " g";
-      break;
-    case BLOOM:
-      label = "Bloom Time";
-      val = String(bloomTime) + " s";
-      break;
-    case TGT_FLOW:
-      label = "Target Flow";
-      if (selectedProfile == PROFILE_FLAT)
-        val = String(flatTargetFlow, 1) + " g/s";
-      else if (selectedProfile == PROFILE_BLOOMING)
-        val = String(bloomTargetFlow, 1) + " g/s";
-      else if (selectedProfile == PROFILE_SLAYER)
-        val = String(slayTargetFlow, 1) + " g/s";
-      break;
-    case START_FLOW:
-      label = "Start Flow";
-      val = String(londStartFlow, 1) + " g/s";
-      break;
-    case END_FLOW:
-      label = "End Flow";
-      val = String(londEndFlow, 1) + " g/s";
+      // val = availableProfiles[selectedProfileIndex];
+      val = currentProfile.name;
+      // Truncate name slightly if it's too long for the small screen
+      if (val.length() > 9)
+        val = val.substring(0, 9) + "..";
       break;
     case FLOW_FACT:
       label = "Stop Factor";
@@ -278,10 +210,12 @@ void renderSettings() {
     case EXIT_MENU:
       label = "Exit Menu";
       break;
+    default:
+      break;
     }
 
     u8g2.drawStr(2, yPos, label.c_str());
-    if (itemIdx == currentSettingIndex && isEditingValue)
+    if (itemIdx == currentSettingIndex && isEditingValue && item != EXIT_MENU)
       val = "[" + val + "]";
     u8g2.drawStr(124 - u8g2.getStrWidth(val.c_str()), yPos, val.c_str());
   }

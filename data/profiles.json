@@ -1,0 +1,14 @@
+{
+  "london_strand": {
+    "name": "London Strand",
+    "phase1": { "start": 10, "end": 40, "time": 4, "exitW": 0.5, "exitT": 12 },
+    "phase2": { "mode": "power", "start": 0, "end": 0, "time": 6, "exitW": 3.0, "exitT": 15 },
+    "phase3": { "mode": "power", "start": 80, "end": 50, "time": 20 }
+  },
+  "flat_9_bar": {
+    "name": "Flat 9 Bar",
+    "phase1": { "start": 50, "end": 80, "time": 2, "exitW": 1.0, "exitT": 8 },
+    "phase2": { "mode": "power", "start": 80, "end": 80, "time": 10, "exitW": 20.0, "exitT": 15 },
+    "phase3": { "mode": "power", "start": 80, "end": 80, "time": 15 }
+  }
+}

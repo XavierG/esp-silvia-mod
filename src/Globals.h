@@ -2,8 +2,9 @@
 
 #include <Adafruit_MAX31855.h>
 #include <Arduino.h>
+#include <ArduinoJson.h>
 #include <ESP32Encoder.h>
-#include <HX711.h>
+#include <HX711_ADC.h>
 #include <Preferences.h>
 #include <QuickPID.h>
 #include <SPI.h>
@@ -11,6 +12,8 @@
 #include <Wire.h>
 
 #include "Config.h"
+#include "secrets.h"
+
 
 // --- Enums ---
 enum State {
@@ -45,9 +48,27 @@ enum BrewProfile {
   PROFILE_SLAYER
 };
 
+// Define the structure for a coffee profile
+struct PhaseTarget {
+  String mode; // "power" or "flow"
+  float start;
+  float end;
+  float time;
+  float exitWeight;
+  float exitTime;
+};
+
+struct EspressoProfile {
+  String name;
+  PhaseTarget phase1;
+  PhaseTarget phase2;
+  PhaseTarget phase3;
+};
+
 // --- Hardware Objects ---
 extern U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2;
-extern HX711 scaleA, scaleB;
+extern HX711_ADC scaleA;
+extern HX711_ADC scaleB;
 extern Adafruit_MAX31855 thermo;
 extern ESP32Encoder encoder;
 extern Preferences prefs;
@@ -90,7 +111,6 @@ extern float lastShotWeight, lastShotTime, lastShotRatio;
 extern String currentProfileStr, lastProfileStr;
 extern unsigned long lastUpdate;
 extern bool warmingOverridden;
-extern float offsetA, offsetB;
 
 // --- Screensaver Variables ---
 extern unsigned long lastActivityTime;
@@ -100,3 +120,31 @@ extern long lastEncoderCount;
 // --- Interrupt & Input Variables ---
 extern volatile unsigned long pressTime, releaseTime;
 extern volatile bool isButtonPressed, newClickAvailable, isLongPressHandled;
+
+// --- Web Server Variables ---
+extern unsigned long lastTelemetryTime;
+extern unsigned long phaseStartTime;
+
+// --- Active Shot Memory ---
+#define MAX_TELEMETRY_POINTS 350 // 350 points = 70 seconds of data at 5Hz
+
+extern float histTime[MAX_TELEMETRY_POINTS];
+extern float histTargetP[MAX_TELEMETRY_POINTS];
+extern float histTargetF[MAX_TELEMETRY_POINTS];
+extern float histPower[MAX_TELEMETRY_POINTS];
+extern float histFlow[MAX_TELEMETRY_POINTS];
+extern float histTemp[MAX_TELEMETRY_POINTS];
+extern int histCount;
+
+// --- Profile & Phase Global Variables ---
+extern EspressoProfile currentProfile;
+extern String availableProfiles[15];
+extern int numAvailableProfiles;
+extern int selectedProfileIndex;
+extern int currentPhaseNum;
+
+// Time variables
+extern const char *TZ_INFO;
+extern const char *ntpServer;
+
+String getTimestamp();

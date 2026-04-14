@@ -1,0 +1,1650 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Silvia Profiler</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        tailwind.config = { darkMode: 'class', theme: { extend: { colors: { espresso: { 900: '#1a1614', 800: '#2c2421', 700: '#423631', accent: '#d97736' } } } } }
+    </script>
+    <style>
+        body {
+            background-color: #1a1614;
+            color: #f3f4f6;
+            font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+        }
+
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #2c2421;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #423631;
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #d97736;
+        }
+
+        /* Prevent double-tap to zoom on interactive elements for mobile */
+        button,
+        select,
+        input,
+        textarea {
+            touch-action: manipulation;
+        }
+
+        .tab-active {
+            border-bottom: 2px solid #d97736;
+            color: #d97736;
+        }
+
+        .input-dark {
+            background-color: #2c2421;
+            border: 1px solid #423631;
+            color: #f3f4f6;
+            border-radius: 0.375rem;
+            padding: 0.5rem;
+            width: 100%;
+            focus: outline-none;
+        }
+
+        .input-dark:focus {
+            border-color: #d97736;
+            outline: none;
+            box-shadow: 0 0 0 1px #d97736;
+        }
+
+        .form-label {
+            display: block;
+            font-size: 0.875rem;
+            color: #9ca3af;
+            margin-bottom: 0.25rem;
+            margin-top: 0.75rem;
+        }
+
+        .overlay-hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .overlay-visible {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        /* Native Fullscreen Styles */
+        .chart-fullscreen-container:fullscreen {
+            padding: 1.5rem !important;
+            background-color: #1a1614 !important;
+            display: flex !important;
+            flex-direction: column !important;
+            width: 100vw !important;
+            height: 100dvh !important;
+        }
+
+        /* Safari Fallback */
+        .chart-fullscreen-container:-webkit-full-screen {
+            padding: 1.5rem !important;
+            background-color: #1a1614 !important;
+            display: flex !important;
+            flex-direction: column !important;
+            width: 100vw !important;
+            height: 100dvh !important;
+        }
+
+        ::backdrop {
+            background-color: #1a1614;
+        }
+    </style>
+</head>
+
+<body class="h-[100dvh] flex flex-col overflow-hidden">
+
+    <!-- Top Navigation (Hidden on Mobile) -->
+    <header class="bg-espresso-800 border-b border-espresso-700 shadow-md z-10 flex-none">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between items-center h-16">
+                <div class="flex items-center">
+                    <svg class="w-8 h-8 text-espresso-accent mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                        xmlns="http://www.w3.org/2000/svg">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                    </svg>
+                    <span class="font-bold text-xl tracking-wider">SILVIA<span
+                            class="text-espresso-accent">PROFILER</span></span>
+                </div>
+                <!-- Desktop Nav -->
+                <nav class="hidden sm:flex space-x-4 sm:space-x-8">
+                    <button onclick="switchTab('live')" id="tab-live"
+                        class="tab-active px-3 py-2 font-medium transition-colors hover:text-espresso-accent">Live
+                        Dash</button>
+                    <button onclick="switchTab('editor')" id="tab-editor"
+                        class="text-gray-400 px-3 py-2 font-medium transition-colors hover:text-espresso-accent">Profile
+                        Editor</button>
+                    <button onclick="switchTab('history')" id="tab-history"
+                        class="text-gray-400 px-3 py-2 font-medium transition-colors hover:text-espresso-accent">History</button>
+                    <button onclick="switchTab('saved')" id="tab-saved"
+                        class="text-gray-400 px-3 py-2 font-medium transition-colors hover:text-espresso-accent">Saved
+                        Shots</button>
+                </nav>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="flex-1 flex flex-col overflow-y-auto p-4 sm:p-6 lg:p-8 relative pb-24 sm:pb-6">
+
+        <!-- LIVE DASHBOARD VIEW -->
+        <div id="view-live" class="max-w-6xl w-full mx-auto flex-1 flex flex-col transition-opacity duration-300">
+            <!-- Compact Inline Stats for Mobile -->
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4 flex-none">
+                <div class="bg-espresso-800 p-3 rounded-lg border border-espresso-700 flex flex-col justify-center">
+                    <div class="flex items-baseline justify-between truncate gap-2">
+                        <span class="text-gray-400 text-xs uppercase tracking-wider">Profile</span>
+                        <span id="live-profile-name" class="font-bold text-white truncate text-sm">--</span>
+                    </div>
+                </div>
+                <div class="bg-espresso-800 p-3 rounded-lg border border-espresso-700 flex flex-col justify-center">
+                    <div class="flex items-baseline justify-between truncate gap-2">
+                        <span class="text-gray-400 text-xs uppercase tracking-wider">Dose</span>
+                        <span class="font-bold text-white text-sm"><span id="live-dose">0.0</span> <span
+                                class="text-gray-500 font-normal">g</span></span>
+                    </div>
+                </div>
+                <div class="bg-espresso-800 p-3 rounded-lg border border-espresso-700 flex flex-col justify-center">
+                    <div class="flex items-baseline justify-between truncate gap-2">
+                        <span class="text-gray-400 text-xs uppercase tracking-wider">Yield</span>
+                        <span class="font-bold text-white text-sm"><span id="live-yield">0.0</span> <span
+                                class="text-gray-500 font-normal">g</span></span>
+                    </div>
+                </div>
+                <div class="bg-espresso-800 p-3 rounded-lg border border-espresso-700 flex flex-col justify-center">
+                    <div class="flex items-baseline justify-between truncate gap-2">
+                        <span class="text-gray-400 text-xs uppercase tracking-wider">Ratio</span>
+                        <span class="font-bold text-espresso-accent text-sm">1 : <span id="live-ratio">0.0</span></span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Lowered min-h to 250px so flex-1 can perfectly scale it to fit the screen without bleeding under the nav -->
+            <div id="live-chart-container"
+                class="bg-espresso-800 p-4 rounded-xl border border-espresso-700 flex-1 min-h-[250px] md:min-h-[400px] relative overflow-hidden flex flex-col">
+                <div class="flex justify-end mb-2">
+                    <button onclick="toggleFullscreen('live-chart-container')"
+                        class="p-3 bg-espresso-700 hover:bg-espresso-600 rounded-lg text-white transition-colors flex items-center gap-2 shadow-lg active:scale-95">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+                        </svg>
+                    </button>
+                </div>
+
+                <!-- Added relative wrapper & absolute canvas to fix ChartJS flexbox shrinking bug -->
+                <div class="flex-1 min-h-0 relative w-full h-full">
+                    <canvas id="liveChart" class="absolute inset-0 w-full h-full"></canvas>
+                </div>
+
+                <!-- Disconnected Overlay for Live View (z-40 to prevent blocking bottom nav) -->
+                <div id="live-overlay"
+                    class="absolute inset-0 bg-espresso-900/60 backdrop-blur-[2px] flex items-center justify-center z-40 transition-all duration-300 overlay-visible">
+                    <div
+                        class="text-center px-6 py-8 bg-espresso-800 border border-espresso-700 rounded-2xl shadow-2xl">
+                        <div class="relative w-16 h-16 mx-auto mb-4">
+                            <div class="absolute inset-0 bg-red-500/20 rounded-full animate-pulse"></div>
+                            <svg class="w-10 h-10 text-red-500 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"
+                                fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M6 18L18 6M6 6l12 12"></path>
+                            </svg>
+                        </div>
+                        <h3 class="text-xl font-bold text-white mb-1">Silvia Offline</h3>
+                        <p class="text-gray-400 text-sm">Live graph unavailable.</p>
+                        <p class="text-gray-400 text-sm">Reconnecting...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- PROFILE EDITOR VIEW -->
+        <div id="view-editor" class="max-w-4xl w-full mx-auto hidden pb-6 relative">
+            <div class="bg-espresso-800 p-4 rounded-xl border border-espresso-700 mb-6">
+                <div class="flex flex-col md:flex-row gap-3 mb-4">
+                    <div class="flex-1">
+                        <label class="form-label !mt-0">Load Profile to Edit</label>
+                        <select id="profile-selector" class="input-dark font-medium text-espresso-accent"
+                            onchange="loadSelectedProfile()">
+                            <option value="new">-- Loading Profiles... --</option>
+                        </select>
+                    </div>
+                    <div class="flex-1">
+                        <label class="form-label !mt-0">Profile Name</label>
+                        <input type="text" id="edit-profile-name" class="input-dark font-bold" value="">
+                    </div>
+                </div>
+                <div class="flex gap-3 w-full border-t border-espresso-700 pt-3">
+                    <button id="delete-btn"
+                        class="hidden flex-1 bg-red-900/30 hover:bg-red-900/50 text-red-400 py-2 px-4 rounded-lg transition-colors border border-red-800/50 font-medium"
+                        onclick="showDeleteModal()">
+                        Delete
+                    </button>
+                    <button
+                        class="flex-1 bg-espresso-700 hover:bg-espresso-600 text-white py-2 px-4 rounded-lg transition-colors border border-espresso-600 font-medium whitespace-nowrap"
+                        onclick="saveProfileToServer()">
+                        Save Profile
+                    </button>
+                </div>
+            </div>
+
+            <div class="space-y-6" id="editor-form-wrapper">
+                <!-- Phase 1: Preinfusion -->
+                <div class="bg-espresso-800 p-5 sm:p-6 rounded-xl border border-espresso-700 relative overflow-hidden">
+                    <div id="phase1-accent" class="absolute top-0 left-0 w-1 h-full bg-espresso-accent"></div>
+                    <h3 class="text-xl font-bold text-white mb-4">Phase 1: Preinfusion</h3>
+
+                    <!-- Phase Parameters -->
+                    <div class="bg-espresso-900/50 p-4 rounded-lg border border-espresso-800/50">
+                        <h4 class="text-xs font-bold text-espresso-accent mb-3 uppercase tracking-wider">Phase
+                            Parameters</h4>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div><label class="form-label !text-white">Start Power (%)</label><input type="number"
+                                    id="phase1-start" class="input-dark" oninput="toggleTransitionFields()"></div>
+                            <div><label class="form-label !text-white">End Power (%)</label><input type="number"
+                                    id="phase1-end" class="input-dark" oninput="toggleTransitionFields()"></div>
+                        </div>
+                        <div class="mt-4 hidden" id="phase1-time-container">
+                            <label class="form-label !text-white">Transition Time (s)</label><input type="number"
+                                id="phase1-time" class="input-dark md:w-1/2" step="0.1">
+                        </div>
+                    </div>
+
+                    <!-- Exit Conditions -->
+                    <div class="mt-6 bg-espresso-900/50 p-4 rounded-lg border border-espresso-800/50">
+                        <h4 class="text-xs font-bold text-espresso-accent mb-3 uppercase tracking-wider">Exit Conditions
+                        </h4>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div><label class="form-label !text-white">Exit Weight (g)</label><input type="number"
+                                    id="phase1-exit-weight" class="input-dark" step="0.1"></div>
+                            <div><label class="form-label !text-white">Max Time (s)</label><input type="number"
+                                    id="phase1-exit-time" class="input-dark"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Phase 2: Hold / Bloom -->
+                <div class="bg-espresso-800 p-5 sm:p-6 rounded-xl border border-espresso-700 relative overflow-hidden">
+                    <div id="phase2-accent" class="absolute top-0 left-0 w-1 h-full bg-espresso-accent"></div>
+                    <h3 class="text-xl font-bold text-white mb-4">Phase 2: Hold / Bloom</h3>
+
+                    <div class="mb-4">
+                        <label class="form-label">Mode</label>
+                        <select id="phase2-mode" class="input-dark md:w-1/3" onchange="updatePhaseAccents()">
+                            <option value="power">Pump (%)</option>
+                            <option value="flow">Flow (g/s)</option>
+                        </select>
+                    </div>
+
+                    <!-- Phase Parameters -->
+                    <div class="bg-espresso-900/50 p-4 rounded-lg border border-espresso-800/50">
+                        <h4 class="text-xs font-bold text-espresso-accent mb-3 uppercase tracking-wider">Phase
+                            Parameters</h4>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div><label class="form-label !text-white">Start Value</label><input type="number"
+                                    id="phase2-start" class="input-dark" step="0.1" oninput="toggleTransitionFields()">
+                            </div>
+                            <div><label class="form-label !text-white">End Value</label><input type="number"
+                                    id="phase2-end" class="input-dark" step="0.1" oninput="toggleTransitionFields()">
+                            </div>
+                        </div>
+                        <div class="mt-4 hidden" id="phase2-time-container">
+                            <label class="form-label !text-white">Transition Time (s)</label><input type="number"
+                                id="phase2-time" class="input-dark md:w-1/2" step="0.1">
+                        </div>
+                    </div>
+
+                    <!-- Exit Conditions -->
+                    <div class="mt-6 bg-espresso-900/50 p-4 rounded-lg border border-espresso-800/50">
+                        <h4 class="text-xs font-bold text-espresso-accent mb-3 uppercase tracking-wider">Exit Conditions
+                        </h4>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div><label class="form-label !text-white">Exit Weight (g)</label><input type="number"
+                                    id="phase2-exit-weight" class="input-dark" step="0.1"></div>
+                            <div><label class="form-label !text-white">Max Time (s)</label><input type="number"
+                                    id="phase2-exit-time" class="input-dark"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Phase 3: Extraction -->
+                <div class="bg-espresso-800 p-5 sm:p-6 rounded-xl border border-espresso-700 relative overflow-hidden">
+                    <div id="phase3-accent" class="absolute top-0 left-0 w-1 h-full bg-espresso-accent"></div>
+                    <h3 class="text-xl font-bold text-white mb-4">Phase 3: Extraction</h3>
+
+                    <div class="mb-4">
+                        <label class="form-label">Mode</label>
+                        <select id="phase3-mode" class="input-dark md:w-1/3" onchange="updatePhaseAccents()">
+                            <option value="power">Pump (%)</option>
+                            <option value="flow">Flow (g/s)</option>
+                        </select>
+                    </div>
+
+                    <!-- Phase Parameters -->
+                    <div class="bg-espresso-900/50 p-4 rounded-lg border border-espresso-800/50">
+                        <h4 class="text-xs font-bold text-espresso-accent mb-3 uppercase tracking-wider">Phase
+                            Parameters</h4>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div><label class="form-label !text-white">Start Value</label><input type="number"
+                                    id="phase3-start" class="input-dark" step="0.1" oninput="toggleTransitionFields()">
+                            </div>
+                            <div><label class="form-label !text-white">End Value</label><input type="number"
+                                    id="phase3-end" class="input-dark" step="0.1" oninput="toggleTransitionFields()">
+                            </div>
+                        </div>
+                        <div class="mt-4 hidden" id="phase3-time-container">
+                            <label class="form-label !text-white">Transition Time (s)</label><input type="number"
+                                id="phase3-time" class="input-dark md:w-1/2" step="0.1">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- FIXED Disconnected Overlay for Editor -->
+            <div id="editor-overlay"
+                class="fixed top-16 bottom-[70px] sm:bottom-0 left-0 right-0 bg-espresso-900/60 backdrop-blur-[2px] flex items-center justify-center z-40 transition-all duration-300 overlay-visible">
+                <div class="text-center px-6 py-8 bg-espresso-800 border border-espresso-700 rounded-2xl shadow-2xl">
+                    <div class="relative w-16 h-16 mx-auto mb-4">
+                        <div class="absolute inset-0 bg-red-500/20 rounded-full animate-pulse"></div>
+                        <svg class="w-10 h-10 text-red-500 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"
+                            fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                    </div>
+                    <h3 class="text-xl font-bold text-white mb-1">Silvia Offline</h3>
+                    <p class="text-gray-400 text-sm">Can't edit profiles.</p>
+                    <p class="text-gray-400 text-sm">Reconnecting...</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- HISTORY VIEW -->
+        <div id="view-history" class="max-w-7xl w-full mx-auto hidden flex-1 flex flex-col gap-6 pb-6">
+            <div class="w-full flex flex-col gap-3 flex-none mb-2 md:mb-6">
+                <div class="flex justify-between items-end">
+                    <div class="flex-1 pr-4">
+                        <label for="history-list" class="text-xl font-bold text-white">Select Historical Shot</label>
+                        <select id="history-list" class="input-dark font-medium text-espresso-accent text-lg p-3 w-full"
+                            onchange="loadHistoryShot(this.value)">
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <div class="w-full flex flex-col flex-1 min-h-[300px]">
+                <!-- Header -->
+                <div
+                    class="bg-espresso-800 p-4 rounded-t-xl border border-b-0 border-espresso-700 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                    <div class="flex flex-col gap-2 w-full md:w-auto">
+                        <div>
+                            <h3 id="hist-profile" class="text-xl font-bold text-white leading-tight">--</h3>
+                            <p id="hist-date" class="text-xs text-gray-400 mt-1">--</p>
+                        </div>
+                        <button onclick="openSaveModal('history')"
+                            class="bg-espresso-accent hover:bg-espresso-600 text-white text-sm font-medium py-1.5 px-3 rounded shadow-md transition-colors self-start">
+                            + Save to Logbook
+                        </button>
+                    </div>
+                    <div class="flex flex-wrap gap-4 md:gap-6 w-full md:w-auto justify-between md:justify-end">
+                        <div>
+                            <div class="text-[10px] uppercase tracking-wider text-gray-400">In</div>
+                            <div id="hist-in" class="font-bold text-white">-- g</div>
+                        </div>
+                        <div>
+                            <div class="text-[10px] uppercase tracking-wider text-gray-400">Out</div>
+                            <div id="hist-out" class="font-bold text-white">-- g</div>
+                        </div>
+                        <div>
+                            <div class="text-[10px] uppercase tracking-wider text-gray-400">Time</div>
+                            <div id="hist-time" class="font-bold text-white">-- s</div>
+                        </div>
+                        <div>
+                            <div class="text-[10px] uppercase tracking-wider text-gray-400">Ratio</div>
+                            <div id="hist-ratio" class="font-bold text-espresso-accent">1:--</div>
+                        </div>
+                    </div>
+                </div>
+                <!-- Lowered min-h to 250px so flex-1 can perfectly scale it to fit the screen -->
+                <div id="history-chart-container"
+                    class="bg-espresso-800 p-4 rounded-b-xl border border-espresso-700 flex-1 min-h-[250px] md:min-h-[400px] relative flex flex-col overflow-hidden">
+                    <div class="flex justify-end mb-2">
+                        <button onclick="toggleFullscreen('history-chart-container')"
+                            class="p-3 bg-espresso-700 hover:bg-espresso-600 rounded-lg text-white transition-colors flex items-center gap-2 shadow-lg active:scale-95">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+                            </svg>
+                        </button>
+                    </div>
+
+                    <!-- Added relative wrapper & absolute canvas to fix ChartJS flexbox shrinking bug -->
+                    <div class="flex-1 min-h-0 relative w-full h-full">
+                        <canvas id="historyChart" class="absolute inset-0 w-full h-full"></canvas>
+                    </div>
+
+                    <!-- Disconnected Overlay for History View -->
+                    <div id="history-overlay"
+                        class="absolute inset-0 bg-espresso-900/60 backdrop-blur-[2px] flex items-center justify-center z-40 transition-all duration-300 overlay-visible">
+                        <div
+                            class="text-center px-6 py-8 bg-espresso-800 border border-espresso-700 rounded-2xl shadow-2xl">
+                            <div class="relative w-16 h-16 mx-auto mb-4">
+                                <div class="absolute inset-0 bg-red-500/20 rounded-full animate-pulse"></div>
+                                <svg class="w-10 h-10 text-red-500 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"
+                                    fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M6 18L18 6M6 6l12 12"></path>
+                                </svg>
+                            </div>
+                            <h3 class="text-xl font-bold text-white mb-1">Silvia Offline</h3>
+                            <p class="text-gray-400 text-sm">History unavailable.</p>
+                            <p class="text-gray-400 text-sm">Reconnecting...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- SAVED SHOTS VIEW -->
+        <div id="view-saved" class="max-w-7xl w-full mx-auto hidden flex-1 flex flex-col gap-6 pb-6">
+            <div class="w-full flex flex-col md:flex-row gap-4 flex-none mb-2 md:mb-6">
+                <div class="flex-1">
+                    <label class="text-sm font-bold text-gray-400 uppercase tracking-wider mb-1 block">Filter by
+                        Bean</label>
+                    <select id="saved-filter" class="input-dark font-medium text-white p-3 w-full"
+                        onchange="populateSavedShotsList()">
+                        <option value="">All Beans</option>
+                    </select>
+                </div>
+                <div class="flex-2 md:w-2/3">
+                    <label class="text-sm font-bold text-gray-400 uppercase tracking-wider mb-1 block">Select Saved
+                        Shot</label>
+                    <select id="saved-list" class="input-dark font-medium text-espresso-accent text-lg p-3 w-full"
+                        onchange="loadSavedShot(this.value)">
+                    </select>
+                </div>
+            </div>
+
+            <div class="w-full flex flex-col flex-1 min-h-[300px]">
+                <!-- Header Restructured to match History UI perfectly -->
+                <div class="bg-espresso-800 p-4 rounded-t-xl border border-b-0 border-espresso-700 flex flex-col gap-4">
+                    <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                        <div class="flex flex-col gap-2 w-full md:w-auto">
+                            <!-- Title is now Coffee Beans, aligned with Stars -->
+                            <div class="flex justify-between items-center w-full md:justify-start md:gap-4">
+                                <div>
+                                    <h3 id="saved-title-beans" class="text-xl font-bold text-white leading-tight">--
+                                    </h3>
+                                    <p id="saved-date" class="text-xs text-gray-400 mt-1">--</p>
+                                </div>
+                                <div id="saved-header-rating" class="flex items-center justify-end">--</div>
+                            </div>
+                        </div>
+
+                        <!-- Core Stats Row -->
+                        <div class="flex flex-wrap gap-4 md:gap-6 w-full md:w-auto justify-between md:justify-end">
+                            <div>
+                                <div class="text-[10px] uppercase tracking-wider text-gray-400">In</div>
+                                <div id="saved-in" class="font-bold text-white">-- g</div>
+                            </div>
+                            <div>
+                                <div class="text-[10px] uppercase tracking-wider text-gray-400">Out</div>
+                                <div id="saved-out-stat" class="font-bold text-white">-- g</div>
+                            </div>
+                            <div>
+                                <div class="text-[10px] uppercase tracking-wider text-gray-400">Time</div>
+                                <div id="saved-time" class="font-bold text-white">-- s</div>
+                            </div>
+                            <div>
+                                <div class="text-[10px] uppercase tracking-wider text-gray-400">Ratio</div>
+                                <div id="saved-ratio-stat" class="font-bold text-espresso-accent">1:--</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Metadata Info Grid -->
+                    <div class="grid grid-cols-2 gap-4 bg-espresso-900/50 p-3 rounded-lg border border-espresso-800/50">
+                        <div>
+                            <div class="text-[10px] uppercase tracking-wider text-gray-400">Profile</div>
+                            <div id="saved-profile-used" class="font-bold text-white truncate">--</div>
+                        </div>
+                        <div>
+                            <div class="text-[10px] uppercase tracking-wider text-gray-400">Grinder</div>
+                            <div id="saved-grinder" class="font-bold text-white">--</div>
+                        </div>
+                        <div class="col-span-2 mt-1 border-t border-espresso-700/50 pt-2">
+                            <div class="text-[10px] uppercase tracking-wider text-gray-400 mb-1">Notes</div>
+                            <div id="saved-notes" class="text-sm text-gray-300 italic">--</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Chart Container -->
+                <div id="saved-chart-container"
+                    class="bg-espresso-800 p-4 rounded-b-xl border border-espresso-700 flex-1 min-h-[250px] md:min-h-[400px] relative flex flex-col overflow-hidden">
+                    <div class="flex justify-end mb-2">
+                        <button onclick="toggleFullscreen('saved-chart-container')"
+                            class="p-3 bg-espresso-700 hover:bg-espresso-600 rounded-lg text-white transition-colors flex items-center gap-2 shadow-lg active:scale-95">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+                            </svg>
+                        </button>
+                    </div>
+
+                    <div class="flex-1 min-h-0 relative w-full h-full">
+                        <canvas id="savedChart" class="absolute inset-0 w-full h-full"></canvas>
+                    </div>
+
+                    <!-- Disconnected Overlay for Saved View -->
+                    <div id="saved-overlay"
+                        class="absolute inset-0 bg-espresso-900/60 backdrop-blur-[2px] flex items-center justify-center z-40 transition-all duration-300 overlay-visible">
+                        <div
+                            class="text-center px-6 py-8 bg-espresso-800 border border-espresso-700 rounded-2xl shadow-2xl">
+                            <div class="relative w-16 h-16 mx-auto mb-4">
+                                <div class="absolute inset-0 bg-red-500/20 rounded-full animate-pulse"></div>
+                                <svg class="w-10 h-10 text-red-500 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"
+                                    fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M6 18L18 6M6 6l12 12"></path>
+                                </svg>
+                            </div>
+                            <h3 class="text-xl font-bold text-white mb-1">Silvia Offline</h3>
+                            <p class="text-gray-400 text-sm">Logbook unavailable.</p>
+                            <p class="text-gray-400 text-sm">Reconnecting...</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Action Buttons placed below the chart container -->
+                <div class="flex gap-3 w-full flex-none mt-4">
+                    <button onclick="openSaveModal('edit')"
+                        class="flex-1 bg-espresso-700 hover:bg-espresso-600 text-white font-bold py-3 px-4 rounded-lg transition-colors border border-espresso-600 shadow-lg">
+                        Edit Shot
+                    </button>
+                    <button onclick="deleteSavedShot()"
+                        class="flex-1 bg-red-900/30 hover:bg-red-900/50 text-red-400 font-bold py-3 px-4 rounded-lg transition-colors border border-red-800/50 shadow-lg">
+                        Delete Shot
+                    </button>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Bottom Mobile Navigation -->
+    <nav
+        class="sm:hidden fixed bottom-0 left-0 right-0 bg-espresso-800 border-t border-espresso-700 z-[90] flex justify-around pb-safe">
+        <button onclick="switchTab('live')" id="tab-mob-live"
+            class="text-espresso-accent flex-1 py-3 flex flex-col items-center gap-1 transition-colors">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012-2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z">
+                </path>
+            </svg>
+            <span class="text-[10px] font-medium uppercase tracking-wider">Live</span>
+        </button>
+        <button onclick="switchTab('editor')" id="tab-mob-editor"
+            class="text-gray-400 flex-1 py-3 flex flex-col items-center gap-1 transition-colors hover:text-espresso-accent">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4">
+                </path>
+            </svg>
+            <span class="text-[10px] font-medium uppercase tracking-wider">Editor</span>
+        </button>
+        <button onclick="switchTab('history')" id="tab-mob-history"
+            class="text-gray-400 flex-1 py-3 flex flex-col items-center gap-1 transition-colors hover:text-espresso-accent">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+            </svg>
+            <span class="text-[10px] font-medium uppercase tracking-wider">History</span>
+        </button>
+        <button onclick="switchTab('saved')" id="tab-mob-saved"
+            class="text-gray-400 flex-1 py-3 flex flex-col items-center gap-1 transition-colors hover:text-espresso-accent">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"></path>
+            </svg>
+            <span class="text-[10px] font-medium uppercase tracking-wider">Saved</span>
+        </button>
+    </nav>
+
+    <!-- Modals -->
+    <div id="custom-alert" class="fixed inset-0 bg-black/60 hidden items-center justify-center z-[110]">
+        <div class="bg-espresso-800 border border-espresso-700 p-6 rounded-xl max-w-sm w-full mx-4">
+            <h3 class="text-lg font-bold text-white mb-2">Notification</h3>
+            <p id="custom-alert-msg" class="text-gray-300 mb-6"></p>
+            <button onclick="document.getElementById('custom-alert').classList.replace('flex','hidden')"
+                class="w-full bg-espresso-accent text-white font-bold py-2 px-4 rounded">OK</button>
+        </div>
+    </div>
+
+    <div id="delete-modal" class="fixed inset-0 bg-black/60 hidden items-center justify-center z-[110]">
+        <div class="bg-espresso-800 border border-espresso-700 p-6 rounded-xl max-w-sm w-full mx-4">
+            <h3 class="text-lg font-bold text-white mb-2">Delete Profile?</h3>
+            <p class="text-gray-300 mb-6">Are you sure you want to delete <span id="delete-profile-name"
+                    class="text-espresso-accent font-bold"></span>?</p>
+            <div class="flex gap-3">
+                <button onclick="document.getElementById('delete-modal').classList.replace('flex','hidden')"
+                    class="flex-1 bg-espresso-700 hover:bg-espresso-600 text-white font-bold py-2 px-4 rounded">Cancel</button>
+                <button onclick="deleteProfileFromServer()"
+                    class="flex-1 bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded">Delete</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="meta-modal" class="fixed inset-0 bg-black/80 hidden items-center justify-center z-[120] backdrop-blur-sm">
+        <div class="bg-espresso-800 border border-espresso-700 p-6 rounded-xl max-w-md w-full mx-4 shadow-2xl relative">
+            <button onclick="closeMetaModal()"
+                class="absolute top-4 right-4 text-gray-400 hover:text-white transition-colors">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12">
+                    </path>
+                </svg>
+            </button>
+            <h3 class="text-xl font-bold text-white mb-5 border-b border-espresso-700 pb-3" id="meta-modal-title">Save
+                Shot to Logbook</h3>
+
+            <input type="hidden" id="meta-mode">
+            <input type="hidden" id="meta-id">
+
+            <div class="space-y-4">
+                <div>
+                    <label class="form-label !mt-0 !text-white">Coffee Beans</label>
+                    <select id="meta-beans-select" class="input-dark py-2 mb-2" onchange="toggleNewBeanInput()">
+                        <option value="">-- Select Beans --</option>
+                    </select>
+                    <input type="text" id="meta-beans-input" class="input-dark py-2 hidden"
+                        placeholder="Enter new bean name...">
+                </div>
+                <!-- Grinder and Rating Stack on Mobile (grid-cols-1) and side-by-side on desktop (sm:grid-cols-2) -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                        <label class="form-label !text-white">Grinder Setting</label>
+                        <input type="number" id="meta-grinder" class="input-dark py-2" placeholder="e.g. 15">
+                    </div>
+                    <div>
+                        <label class="form-label !text-white">Rating (0-5)</label>
+                        <!-- Custom Interactive Star Rating (No libraries required, works perfectly offline) -->
+                        <div class="flex items-center gap-2 mt-2">
+                            <div class="relative flex items-center">
+                                <div id="star-display" class="flex items-center">
+                                    <!-- Stars injected by JS -->
+                                </div>
+                                <!-- Invisible overlay to continuously catch touch/mouse events without being destroyed -->
+                                <div class="absolute inset-0 z-10 touch-none cursor-pointer"
+                                    onmousemove="handleStarHover(event)" onmouseleave="handleStarLeave()"
+                                    onclick="handleStarClick(event)" ontouchstart="handleStarTouch(event)"
+                                    ontouchmove="handleStarTouch(event)">
+                                </div>
+                            </div>
+                            <span id="star-value-display" class="text-yellow-500 font-bold w-8 text-center">3.0</span>
+                            <input type="hidden" id="meta-rating" value="3.0">
+                        </div>
+                    </div>
+                </div>
+                <div>
+                    <label class="form-label !text-white">Tasting Notes</label>
+                    <textarea id="meta-notes" class="input-dark py-2 resize-none" rows="3"
+                        placeholder="e.g. Great body, slightly sour, try finer grind..."></textarea>
+                </div>
+            </div>
+
+            <div class="flex gap-3 mt-6">
+                <button onclick="closeMetaModal()"
+                    class="flex-1 bg-espresso-700 hover:bg-espresso-600 text-white font-bold py-3 px-4 rounded-lg transition-colors border border-espresso-600">Cancel</button>
+                <button onclick="saveMetadata()"
+                    class="flex-1 bg-espresso-accent hover:bg-orange-600 text-white font-bold py-3 px-4 rounded-lg transition-colors shadow-lg">Save
+                    Shot</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ==========================================
+        // STATE & INITIALIZATION
+        // ==========================================
+        let profilesDB = {};
+        let historyDB = [];
+        let savedDB = {};
+
+        let ws;
+        let dose = 18.0;
+
+        let lastTimeReceived = -1;
+        let isConnected = false;
+        let heartbeatInterval;
+        let lastHiddenTime = 0;
+
+        let currentHistoryIndex = 0;
+        let currentSavedId = null;
+
+        // Star rating global state
+        let currentRating = 3.0;
+
+        window.onload = async () => {
+            initLiveChart();
+            await fetchData();
+            initWebSocket();
+        };
+
+        // Network fallback listener
+        window.addEventListener('offline', () => {
+            if (ws) {
+                ws.onclose = null;
+                ws.close();
+            }
+            handleDisconnect();
+            setTimeout(initWebSocket, 2000);
+        });
+
+        // Visibility listener automatically restores broken web sockets when pulling app back up
+        document.addEventListener("visibilitychange", () => {
+            if (document.visibilityState === "visible") {
+                const timeHidden = Date.now() - lastHiddenTime;
+                if (timeHidden > 5000) {
+                    // Force a clean reconnect if suspended for a bit
+                    if (ws) {
+                        ws.onclose = null;
+                        ws.close();
+                    }
+                    handleDisconnect();
+                    initWebSocket();
+                } else {
+                    if (!ws || ws.readyState === WebSocket.CLOSED) {
+                        initWebSocket();
+                    }
+                }
+            } else {
+                lastHiddenTime = Date.now();
+            }
+        });
+
+        // ==========================================
+        // CUSTOM INTERACTIVE STAR RATING LOGIC
+        // ==========================================
+
+        // Helper to generate the exact HTML needed for 5 stars, with precise percentage filling for half-stars
+        function getStarsHTML(rating, sizeClass = 'w-6 h-6') {
+            let html = '<div class="flex items-center">';
+            for (let i = 1; i <= 5; i++) {
+                let percent = Math.max(0, Math.min(100, (rating - i + 1) * 100));
+                // We use sizeClass on the inner SVG as well so that it doesn't shrink, it just gets cropped perfectly!
+                html += `
+                    <div class="relative ${sizeClass} text-espresso-700 flex-shrink-0">
+                        <svg class="absolute inset-0 w-full h-full" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M11.48 3.499a.562.562 0 011.04 0l2.125 5.111a.563.563 0 00.475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 00-.182.557l1.285 5.385a.562.562 0 01-.84.61l-4.725-2.885a.563.563 0 00-.586 0L6.982 20.54a.562.562 0 01-.84-.61l1.285-5.386a.562.562 0 00-.182-.557l-4.204-3.602a.563.563 0 01.321-.988l5.518-.442a.563.563 0 00.475-.345L11.48 3.5z"></path></svg>
+                        <div class="absolute top-0 left-0 h-full overflow-hidden text-yellow-500" style="width: ${percent}%;">
+                            <svg class="absolute top-0 left-0 ${sizeClass}" fill="currentColor" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M11.48 3.499a.562.562 0 011.04 0l2.125 5.111a.563.563 0 00.475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 00-.182.557l1.285 5.385a.562.562 0 01-.84.61l-4.725-2.885a.563.563 0 00-.586 0L6.982 20.54a.562.562 0 01-.84-.61l1.285-5.386a.562.562 0 00-.182-.557l-4.204-3.602a.563.563 0 01.321-.988l5.518-.442a.563.563 0 00.475-.345L11.48 3.5z"></path></svg>
+                        </div>
+                    </div>
+                `;
+            }
+            html += '</div>';
+            return html;
+        }
+
+        function renderStars(rating, containerId) {
+            const container = document.getElementById(containerId);
+            if (!container) return;
+            // Use larger, easier-to-click stars on mobile if in the modal
+            const sizeClass = containerId === 'star-display' ? 'w-10 h-10 sm:w-8 sm:h-8' : 'w-5 h-5';
+            container.innerHTML = getStarsHTML(rating, sizeClass);
+        }
+
+        function handleStarHover(e) {
+            const rect = e.currentTarget.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            let rating = (x / rect.width) * 5;
+            rating = Math.ceil(rating * 2) / 2; // Round up to nearest 0.5
+            if (rating < 0) rating = 0;
+            if (rating > 5) rating = 5;
+            renderStars(rating, 'star-display');
+            document.getElementById('star-value-display').innerText = rating.toFixed(1);
+        }
+
+        function handleStarLeave() {
+            renderStars(currentRating, 'star-display');
+            document.getElementById('star-value-display').innerText = currentRating.toFixed(1);
+        }
+
+        function handleStarClick(e) {
+            const rect = e.currentTarget.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            let rating = (x / rect.width) * 5;
+            rating = Math.ceil(rating * 2) / 2;
+            if (rating < 0) rating = 0;
+            if (rating > 5) rating = 5;
+            currentRating = rating;
+            document.getElementById('meta-rating').value = currentRating;
+            renderStars(currentRating, 'star-display');
+        }
+
+        // Swipe support for mobile
+        function handleStarTouch(e) {
+            // Prevent default to avoid scrolling while swiping
+            if (e.cancelable) e.preventDefault();
+            const rect = e.currentTarget.getBoundingClientRect();
+            const touch = e.touches[0];
+            const x = touch.clientX - rect.left;
+            let rating = (x / rect.width) * 5;
+            rating = Math.ceil(rating * 2) / 2;
+            if (rating < 0) rating = 0;
+            if (rating > 5) rating = 5;
+
+            currentRating = rating;
+            document.getElementById('meta-rating').value = currentRating;
+            renderStars(currentRating, 'star-display');
+            document.getElementById('star-value-display').innerText = currentRating.toFixed(1);
+        }
+
+        // ==========================================
+        // NATIVE FULLSCREEN LOGIC
+        // ==========================================
+        async function toggleFullscreen(containerId) {
+            const container = document.getElementById(containerId);
+
+            // Using Native HTML5 Fullscreen API
+            if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+                try {
+                    if (container.requestFullscreen) {
+                        await container.requestFullscreen();
+                    } else if (container.webkitRequestFullscreen) { // Safari
+                        await container.webkitRequestFullscreen();
+                    }
+
+                    // Attempt to lock screen to landscape mode (Mobile devices)
+                    if (screen.orientation && screen.orientation.lock) {
+                        await screen.orientation.lock('landscape');
+                    }
+                } catch (err) {
+                    console.warn("Fullscreen or orientation lock error:", err);
+                }
+            } else {
+                if (document.exitFullscreen) {
+                    document.exitFullscreen();
+                } else if (document.webkitExitFullscreen) { // Safari
+                    document.webkitExitFullscreen();
+                }
+            }
+        }
+
+        // Listener to catch fullscreen exit/enter (even via 'Back' gesture)
+        function handleFullscreenChange() {
+            const isFullscreen = document.fullscreenElement || document.webkitFullscreenElement;
+
+            // Automatically unlock orientation when exiting fullscreen
+            if (!isFullscreen && screen.orientation && screen.orientation.unlock) {
+                try {
+                    screen.orientation.unlock();
+                } catch (e) {
+                    console.warn("Orientation unlock error:", e);
+                }
+            }
+
+            const containers = ['live-chart-container', 'history-chart-container', 'saved-chart-container'];
+
+            containers.forEach(id => {
+                const container = document.getElementById(id);
+                if (!container) return;
+
+                const icon = container.querySelector('svg');
+
+                if (isFullscreen && (document.fullscreenElement === container || document.webkitFullscreenElement === container)) {
+                    container.classList.add('chart-fullscreen-container');
+                    // Shrink icon
+                    icon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4l5 5m11-5l-5 5M4 20l5-5m11 5l-5-5" />';
+                } else {
+                    container.classList.remove('chart-fullscreen-container');
+                    // Expand icon
+                    icon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />';
+                }
+            });
+
+            // Trigger chart resize after layout snaps
+            setTimeout(() => {
+                if (liveChart) liveChart.resize();
+                if (historyChart) historyChart.resize();
+                if (savedChart) savedChart.resize();
+            }, 100);
+        }
+
+        document.addEventListener('fullscreenchange', handleFullscreenChange);
+        document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+
+        function handleDisconnect() {
+            isConnected = false;
+
+            const liveOverlay = document.getElementById('live-overlay');
+            const editorOverlay = document.getElementById('editor-overlay');
+            const historyOverlay = document.getElementById('history-overlay');
+            const savedOverlay = document.getElementById('saved-overlay');
+
+            if (liveOverlay) { liveOverlay.classList.remove('overlay-hidden'); liveOverlay.classList.add('overlay-visible'); }
+            if (editorOverlay) { editorOverlay.classList.remove('overlay-hidden'); editorOverlay.classList.add('overlay-visible'); }
+            if (historyOverlay) { historyOverlay.classList.remove('overlay-hidden'); historyOverlay.classList.add('overlay-visible'); }
+            if (savedOverlay) { savedOverlay.classList.remove('overlay-hidden'); savedOverlay.classList.add('overlay-visible'); }
+
+            if (heartbeatInterval) clearInterval(heartbeatInterval);
+        }
+
+        function handleConnect() {
+            isConnected = true;
+
+            const liveOverlay = document.getElementById('live-overlay');
+            const editorOverlay = document.getElementById('editor-overlay');
+            const historyOverlay = document.getElementById('history-overlay');
+            const savedOverlay = document.getElementById('saved-overlay');
+
+            if (liveOverlay) { liveOverlay.classList.add('overlay-hidden'); liveOverlay.classList.remove('overlay-visible'); }
+            if (editorOverlay) { editorOverlay.classList.add('overlay-hidden'); editorOverlay.classList.remove('overlay-visible'); }
+            if (historyOverlay) { historyOverlay.classList.add('overlay-hidden'); historyOverlay.classList.remove('overlay-visible'); }
+            if (savedOverlay) { savedOverlay.classList.add('overlay-hidden'); savedOverlay.classList.remove('overlay-visible'); }
+
+            if (heartbeatInterval) clearInterval(heartbeatInterval);
+
+            // Active watchdog using HTTP Fetch
+            heartbeatInterval = setInterval(async () => {
+                if (!isConnected) return;
+
+                try {
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 2500);
+                    await fetch('/?ping=' + Date.now(), { method: 'HEAD', cache: 'no-store', signal: controller.signal });
+                    clearTimeout(timeoutId);
+
+                    if (ws && ws.readyState !== WebSocket.OPEN) throw new Error("WS not open");
+                } catch (e) {
+                    if (ws) { ws.onclose = null; ws.close(); }
+                    handleDisconnect();
+                    setTimeout(initWebSocket, 2000);
+                }
+            }, 3000);
+        }
+
+        async function switchTab(tabId) {
+            ['live', 'editor', 'history', 'saved'].forEach(id => {
+                const el = document.getElementById('view-' + id);
+                const tab = document.getElementById('tab-' + id);
+                const mobTab = document.getElementById('tab-mob-' + id);
+
+                if (el) el.classList.add('hidden');
+
+                if (tab) {
+                    tab.classList.remove('tab-active', 'text-espresso-accent');
+                    tab.classList.add('text-gray-400');
+                }
+
+                if (mobTab) {
+                    mobTab.classList.remove('text-espresso-accent');
+                    mobTab.classList.add('text-gray-400');
+                }
+            });
+
+            const activeEl = document.getElementById('view-' + tabId);
+            const activeTab = document.getElementById('tab-' + tabId);
+            const activeMobTab = document.getElementById('tab-mob-' + tabId);
+
+            if (activeEl) activeEl.classList.remove('hidden');
+            if (activeTab) {
+                activeTab.classList.add('tab-active', 'text-espresso-accent');
+                activeTab.classList.remove('text-gray-400');
+            }
+            if (activeMobTab) {
+                activeMobTab.classList.add('text-espresso-accent');
+                activeMobTab.classList.remove('text-gray-400');
+            }
+
+            // Refresh data dynamically depending on tab
+            if (tabId === 'history' || tabId === 'saved') {
+                await fetchData();
+                if (tabId === 'history') {
+                    if (!historyChartInit) renderHistoryChart();
+                    if (historyDB.length > 0) loadHistoryShot(currentHistoryIndex);
+                } else if (tabId === 'saved') {
+                    if (!savedChartInit) renderSavedChart();
+                    populateSavedShotsList();
+                }
+            }
+        }
+
+        function alertMsg(msg) {
+            document.getElementById('custom-alert-msg').innerText = msg;
+            document.getElementById('custom-alert').classList.replace('hidden', 'flex');
+        }
+
+        // ==========================================
+        // DATA FETCHING & UI POPULATION
+        // ==========================================
+        async function fetchData() {
+            try {
+                // 1. Fetch Profiles
+                const pRes = await fetch('/profiles.json');
+                if (pRes.ok) {
+                    profilesDB = await pRes.json();
+                    const pSelect = document.getElementById('profile-selector');
+                    const currentVal = pSelect.value;
+                    pSelect.innerHTML = '<option value="new">-- Create New Profile --</option>';
+                    Object.keys(profilesDB).forEach(key => {
+                        pSelect.innerHTML += `<option value="${key}">${profilesDB[key].name}</option>`;
+                    });
+                    if (profilesDB[currentVal]) pSelect.value = currentVal;
+                }
+
+                // 2. Fetch History
+                const hRes = await fetch('/history.json');
+                if (hRes.ok) {
+                    const data = await hRes.json();
+                    historyDB = data.reverse();
+                    const hSelect = document.getElementById('history-list');
+                    hSelect.innerHTML = '';
+                    historyDB.forEach((shot, idx) => {
+                        hSelect.innerHTML += `<option value="${idx}">${shot.date} — ${shot.name} (In: ${shot.dose}g | Out: ${shot.yield}g)</option>`;
+                    });
+                    if (historyDB.length > 0 && currentHistoryIndex < historyDB.length) {
+                        hSelect.selectedIndex = currentHistoryIndex;
+                    }
+                }
+
+                // 3. Fetch Saved Shots
+                const sRes = await fetch('/saved_shots.json').catch(() => null);
+                if (sRes && sRes.ok) {
+                    savedDB = await sRes.json();
+                }
+
+            } catch (err) {
+                console.error("Failed to load data", err);
+            }
+        }
+
+        // ==========================================
+        // SAVED SHOTS LOGIC
+        // ==========================================
+        function toggleNewBeanInput() {
+            const select = document.getElementById('meta-beans-select');
+            const input = document.getElementById('meta-beans-input');
+            if (select.value === 'new') {
+                input.classList.remove('hidden');
+                input.focus();
+            } else {
+                input.classList.add('hidden');
+            }
+        }
+
+        function updateBeanDropdown() {
+            const select = document.getElementById('meta-beans-select');
+            select.innerHTML = '<option value="">-- Select Beans --</option>';
+
+            const uniqueBeans = new Set();
+            Object.values(savedDB).forEach(entry => {
+                if (entry.metadata && entry.metadata.beans) uniqueBeans.add(entry.metadata.beans);
+            });
+
+            Array.from(uniqueBeans).sort().forEach(bean => {
+                select.innerHTML += `<option value="${bean}">${bean}</option>`;
+            });
+            select.innerHTML += '<option value="new" class="font-bold text-espresso-accent">+ Create New Beans</option>';
+        }
+
+        function populateSavedShotsList() {
+            const filterEl = document.getElementById('saved-filter');
+            const listEl = document.getElementById('saved-list');
+            const currentFilter = filterEl.value;
+            const currentSelected = listEl.value;
+
+            listEl.innerHTML = '';
+            const uniqueBeans = new Set();
+
+            // Sort by descending keys (assuming keys are timestamps)
+            const sortedKeys = Object.keys(savedDB).sort((a, b) => b - a);
+
+            sortedKeys.forEach(k => {
+                const entry = savedDB[k];
+                if (entry.metadata.beans) uniqueBeans.add(entry.metadata.beans);
+
+                if (currentFilter === "" || entry.metadata.beans === currentFilter) {
+                    listEl.innerHTML += `<option value="${k}">${entry.shot.date} — ${entry.metadata.beans || 'Unknown Beans'} (${parseFloat(entry.metadata.rating).toFixed(1)}/5)</option>`;
+                }
+            });
+
+            // Update Filter Dropdown
+            let filterHtml = '<option value="">All Beans</option>';
+            Array.from(uniqueBeans).sort().forEach(bean => {
+                filterHtml += `<option value="${bean}">${bean}</option>`;
+            });
+            filterEl.innerHTML = filterHtml;
+            filterEl.value = currentFilter; // restore filter state
+
+            // Update the Modal Dropdown to match available beans
+            updateBeanDropdown();
+
+            // Re-select logic
+            if (listEl.options.length > 0) {
+                let found = false;
+                for (let i = 0; i < listEl.options.length; i++) {
+                    if (listEl.options[i].value === currentSavedId) {
+                        listEl.selectedIndex = i;
+                        found = true; break;
+                    }
+                }
+                if (!found) listEl.selectedIndex = 0;
+                loadSavedShot(listEl.value);
+            } else {
+                // Clear UI if empty
+                document.getElementById('saved-title-beans').innerText = "--";
+                document.getElementById('saved-date').innerText = "--";
+                document.getElementById('saved-in').innerText = "--";
+                document.getElementById('saved-out-stat').innerText = "--";
+                document.getElementById('saved-time').innerText = "--";
+                document.getElementById('saved-ratio-stat').innerText = "--";
+                document.getElementById('saved-profile-used').innerText = "--";
+                document.getElementById('saved-grinder').innerText = "--";
+                document.getElementById('saved-header-rating').innerHTML = "--";
+                document.getElementById('saved-notes').innerText = "--";
+                if (savedChart) { savedChart.data.labels = []; savedChart.data.datasets.forEach(d => d.data = []); savedChart.update(); }
+                currentSavedId = null;
+            }
+        }
+
+        function openSaveModal(mode) {
+            document.getElementById('meta-mode').value = mode;
+            const title = document.getElementById('meta-modal-title');
+
+            updateBeanDropdown();
+
+            if (mode === 'history') {
+                if (historyDB.length === 0) { alertMsg("No history to save."); return; }
+                title.innerText = "Save Shot to Logbook";
+
+                document.getElementById('meta-beans-select').value = '';
+                document.getElementById('meta-beans-input').classList.add('hidden');
+                document.getElementById('meta-beans-input').value = '';
+
+                document.getElementById('meta-grinder').value = '';
+                document.getElementById('meta-notes').value = '';
+
+                currentRating = 3.0; // Reset to 3 stars default
+
+            } else if (mode === 'edit') {
+                if (!currentSavedId || !savedDB[currentSavedId]) return;
+                title.innerText = "Edit Saved Shot";
+
+                const entry = savedDB[currentSavedId].metadata;
+                document.getElementById('meta-id').value = currentSavedId;
+
+                const select = document.getElementById('meta-beans-select');
+                const input = document.getElementById('meta-beans-input');
+
+                // Smart handling of existing vs new beans in edit mode
+                let foundInList = Array.from(select.options).some(opt => opt.value === entry.beans);
+                if (entry.beans && foundInList) {
+                    select.value = entry.beans;
+                    input.classList.add('hidden');
+                    input.value = '';
+                } else if (entry.beans) {
+                    select.value = 'new';
+                    input.classList.remove('hidden');
+                    input.value = entry.beans;
+                } else {
+                    select.value = '';
+                    input.classList.add('hidden');
+                    input.value = '';
+                }
+
+                document.getElementById('meta-grinder').value = entry.grinder || '';
+                document.getElementById('meta-notes').value = entry.notes || '';
+
+                currentRating = parseFloat(entry.rating) || 0;
+            }
+
+            // Sync Star UI
+            document.getElementById('meta-rating').value = currentRating;
+            renderStars(currentRating, 'star-display');
+            document.getElementById('star-value-display').innerText = currentRating.toFixed(1);
+
+            document.getElementById('meta-modal').classList.replace('hidden', 'flex');
+        }
+
+        function closeMetaModal() {
+            document.getElementById('meta-modal').classList.replace('flex', 'hidden');
+        }
+
+        async function saveMetadata() {
+            if (!isConnected) return;
+            const mode = document.getElementById('meta-mode').value;
+
+            const selectValue = document.getElementById('meta-beans-select').value;
+            const inputValue = document.getElementById('meta-beans-input').value.trim();
+            const finalBeans = selectValue === 'new' ? inputValue : selectValue;
+
+            const metadata = {
+                beans: finalBeans,
+                grinder: parseInt(document.getElementById('meta-grinder').value) || null,
+                rating: parseFloat(document.getElementById('meta-rating').value) || 0,
+                notes: document.getElementById('meta-notes').value
+            };
+
+            if (mode === 'history') {
+                const shot = historyDB[currentHistoryIndex];
+                if (!shot) return;
+                const newId = Date.now().toString();
+                savedDB[newId] = { metadata: metadata, shot: shot };
+                currentSavedId = newId; // Auto-select when switching tabs
+            } else if (mode === 'edit') {
+                const id = document.getElementById('meta-id').value;
+                if (!savedDB[id]) return;
+                savedDB[id].metadata = metadata;
+            }
+
+            closeMetaModal();
+
+            // Post to backend - Supress hard errors if local dataset updated fine
+            try {
+                const res = await fetch('/api/saved', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(savedDB)
+                });
+                if (!res.ok) {
+                    console.warn("Backend sync returned status", res.status, "- Local DB updated successfully.");
+                }
+            } catch (e) {
+                console.warn("Backend sync network error - Local DB updated successfully.", e);
+            }
+
+            // Guarantee UI update and avoid throwing "Error saving..." unless the code truly breaks
+            alertMsg(mode === 'history' ? "Shot Saved to Logbook!" : "Saved Shot Updated!");
+            await fetchData();
+            if (document.getElementById('view-saved').classList.contains('hidden') === false) {
+                populateSavedShotsList();
+            }
+        }
+
+        async function deleteSavedShot() {
+            if (!isConnected || !currentSavedId || !savedDB[currentSavedId]) return;
+
+            if (confirm("Are you sure you want to delete this saved shot?")) {
+                delete savedDB[currentSavedId];
+                try {
+                    const res = await fetch('/api/saved', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(savedDB)
+                    });
+                    if (!res.ok) console.warn("Backend sync returned status", res.status);
+                } catch (e) {
+                    console.warn("Backend sync error on delete", e);
+                }
+
+                currentSavedId = null;
+                await fetchData();
+                populateSavedShotsList();
+            }
+        }
+
+        // ==========================================
+        // PROFILE EDITOR LOGIC
+        // ==========================================
+        function toggleTransitionFields() {
+            ['1', '2', '3'].forEach(phase => {
+                const startVal = document.getElementById(`phase${phase}-start`).value;
+                const endVal = document.getElementById(`phase${phase}-end`).value;
+                const container = document.getElementById(`phase${phase}-time-container`);
+                if (endVal && endVal.trim() !== '' && startVal !== endVal) {
+                    container.classList.remove('hidden');
+                } else {
+                    container.classList.add('hidden');
+                }
+            });
+        }
+
+        function updatePhaseAccents() {
+            const phase2Mode = document.getElementById('phase2-mode').value;
+            const phase3Mode = document.getElementById('phase3-mode').value;
+            const p2Accent = document.getElementById('phase2-accent');
+            const p3Accent = document.getElementById('phase3-accent');
+
+            if (phase2Mode === 'power') {
+                p2Accent.classList.remove('bg-blue-500');
+                p2Accent.classList.add('bg-espresso-accent');
+            } else {
+                p2Accent.classList.remove('bg-espresso-accent');
+                p2Accent.classList.add('bg-blue-500');
+            }
+
+            if (phase3Mode === 'power') {
+                p3Accent.classList.remove('bg-blue-500');
+                p3Accent.classList.add('bg-espresso-accent');
+            } else {
+                p3Accent.classList.remove('bg-espresso-accent');
+                p3Accent.classList.add('bg-blue-500');
+            }
+        }
+
+        async function saveProfileToServer() {
+            if (!isConnected) return;
+
+            // Auto-fill empty end values with start values before building the payload
+            ['1', '2', '3'].forEach(phase => {
+                const startVal = document.getElementById(`phase${phase}-start`).value;
+                const endInput = document.getElementById(`phase${phase}-end`);
+                if (endInput.value.trim() === '' && startVal.trim() !== '') {
+                    endInput.value = startVal;
+                }
+            });
+            toggleTransitionFields();
+
+            const id = document.getElementById('profile-selector').value === 'new' ?
+                document.getElementById('edit-profile-name').value.toLowerCase().replace(/ /g, '_') :
+                document.getElementById('profile-selector').value;
+
+            const newProfile = {
+                name: document.getElementById('edit-profile-name').value,
+                phase1: {
+                    start: parseFloat(document.getElementById('phase1-start').value || 0),
+                    end: parseFloat(document.getElementById('phase1-end').value || 0),
+                    time: parseFloat(document.getElementById('phase1-time').value || 0),
+                    exitW: parseFloat(document.getElementById('phase1-exit-weight').value || 0),
+                    exitT: parseFloat(document.getElementById('phase1-exit-time').value || 0)
+                },
+                phase2: {
+                    mode: document.getElementById('phase2-mode').value,
+                    start: parseFloat(document.getElementById('phase2-start').value || 0),
+                    end: parseFloat(document.getElementById('phase2-end').value || 0),
+                    time: parseFloat(document.getElementById('phase2-time').value || 0),
+                    exitW: parseFloat(document.getElementById('phase2-exit-weight').value || 0),
+                    exitT: parseFloat(document.getElementById('phase2-exit-time').value || 0)
+                },
+                phase3: {
+                    mode: document.getElementById('phase3-mode').value,
+                    start: parseFloat(document.getElementById('phase3-start').value || 0),
+                    end: parseFloat(document.getElementById('phase3-end').value || 0),
+                    time: parseFloat(document.getElementById('phase3-time').value || 0)
+                }
+            };
+
+            profilesDB[id] = newProfile;
+            try {
+                const res = await fetch('/api/profiles', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(profilesDB)
+                });
+                if (res.ok) {
+                    alertMsg("Profile Saved!");
+                    await fetchData();
+                    document.getElementById('profile-selector').value = id;
+                    loadSelectedProfile();
+                } else {
+                    alertMsg("Error saving profile.");
+                }
+            } catch (e) { alertMsg("Network error."); }
+        }
+
+        function showDeleteModal() {
+            if (!isConnected) return;
+            const id = document.getElementById('profile-selector').value;
+            if (id === 'new') return;
+            document.getElementById('delete-profile-name').innerText = profilesDB[id].name;
+            document.getElementById('delete-modal').classList.replace('hidden', 'flex');
+        }
+
+        async function deleteProfileFromServer() {
+            const id = document.getElementById('profile-selector').value;
+            document.getElementById('delete-modal').classList.replace('flex', 'hidden');
+            if (!profilesDB[id]) return;
+            delete profilesDB[id];
+            try {
+                const res = await fetch('/api/profiles', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(profilesDB)
+                });
+                if (res.ok) {
+                    alertMsg("Profile Deleted.");
+                    await fetchData();
+                    document.getElementById('profile-selector').value = 'new';
+                    loadSelectedProfile();
+                }
+            } catch (e) { alertMsg("Network error."); }
+        }
+
+        function loadSelectedProfile() {
+            const profileId = document.getElementById('profile-selector').value;
+            const deleteBtn = document.getElementById('delete-btn');
+            if (profileId === 'new') {
+                deleteBtn.classList.add('hidden');
+                document.getElementById('phase2-mode').value = 'power';
+                document.getElementById('phase3-mode').value = 'power';
+                updatePhaseAccents();
+                toggleTransitionFields();
+                return;
+            }
+            const data = profilesDB[profileId];
+            if (!data) return;
+            deleteBtn.classList.remove('hidden');
+            document.getElementById('edit-profile-name').value = data.name || "";
+            document.getElementById('phase1-start').value = data.phase1?.start ?? "";
+            document.getElementById('phase1-end').value = data.phase1?.end ?? "";
+            document.getElementById('phase1-time').value = data.phase1?.time ?? "";
+            document.getElementById('phase1-exit-weight').value = data.phase1?.exitW ?? "";
+            document.getElementById('phase1-exit-time').value = data.phase1?.exitT ?? "";
+            document.getElementById('phase2-mode').value = data.phase2?.mode || "power";
+            document.getElementById('phase2-start').value = data.phase2?.start ?? "";
+            document.getElementById('phase2-end').value = data.phase2?.end ?? "";
+            document.getElementById('phase2-time').value = data.phase2?.time ?? "";
+            document.getElementById('phase2-exit-weight').value = data.phase2?.exitW ?? "";
+            document.getElementById('phase2-exit-time').value = data.phase2?.exitT ?? "";
+            document.getElementById('phase3-mode').value = data.phase3?.mode || "power";
+            document.getElementById('phase3-start').value = data.phase3?.start ?? "";
+            document.getElementById('phase3-end').value = data.phase3?.end ?? "";
+            document.getElementById('phase3-time').value = data.phase3?.time ?? "";
+
+            updatePhaseAccents();
+            toggleTransitionFields();
+        }
+
+        // ==========================================
+        // WEBSOCKET LOGIC
+        // ==========================================
+        function initWebSocket() {
+            if (ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN)) return;
+
+            const gateway = `ws://${window.location.hostname}/ws`;
+            ws = new WebSocket(gateway);
+
+            ws.onopen = () => handleConnect();
+            ws.onclose = () => { handleDisconnect(); setTimeout(initWebSocket, 2000); };
+            ws.onerror = () => ws.close();
+
+            ws.onmessage = (event) => {
+                let data;
+                try { data = JSON.parse(event.data); } catch (e) { return; }
+
+                if (data.time !== undefined && data.time < lastTimeReceived) resetLiveGraph();
+                if (data.status === "start") { resetLiveGraph(data.profileName, data.dose); return; }
+
+                if (data.time !== undefined) {
+                    lastTimeReceived = data.time;
+                    liveChart.data.labels.push(data.time);
+                    liveChart.data.datasets[0].data.push(data.power);
+                    liveChart.data.datasets[1].data.push(data.flow);
+                    liveChart.data.datasets[2].data.push(data.temp);
+                    liveChart.data.datasets[3].data.push(data.tP > 0 ? data.tP : null);
+                    liveChart.data.datasets[4].data.push(data.tF > 0 ? data.tF : null);
+
+                    document.getElementById('live-yield').innerText = data.yield.toFixed(1);
+                    document.getElementById('live-ratio').innerText = (data.yield / dose).toFixed(1);
+
+                    liveChart.options.scales.x.max = data.time;
+                    liveChart.update('none');
+                }
+            };
+        }
+
+        function resetLiveGraph(name = "Manual", newDose = 18.0) {
+            liveChart.data.labels = [];
+            liveChart.data.datasets.forEach(d => d.data = []);
+            document.getElementById('live-profile-name').innerText = name;
+            dose = newDose;
+            document.getElementById('live-dose').innerText = dose.toFixed(1);
+            lastTimeReceived = -1;
+            liveChart.update();
+        }
+
+        // ==========================================
+        // CHART.JS CONFIGURATION & RENDERING
+        // ==========================================
+        Chart.defaults.color = '#9ca3af';
+        const chartOptions = {
+            responsive: true, maintainAspectRatio: false, animation: false,
+            spanGaps: false,
+            elements: { point: { radius: 0 }, line: { tension: 0.3 } },
+            scales: {
+                x: {
+                    type: 'linear',
+                    title: { display: true, text: 'Time (s)' },
+                    min: 0,
+                    bounds: 'data',
+                    ticks: {
+                        stepSize: 1,
+                        callback: (v) => Number.isInteger(v) ? v + 's' : null
+                    }
+                },
+                yPower: { position: 'left', title: { display: true, text: 'Pump (%)', color: '#d97736' }, min: 0, max: 100 },
+                yFlow: { position: 'right', title: { display: true, text: 'Flow (g/s)', color: '#3b82f6' }, min: 0, max: 8 },
+                yTemp: { position: 'right', title: { display: true, text: 'Temp (°C)', color: '#ef4444' }, min: 80, max: 105 }
+            }
+        };
+
+        let liveChart;
+        function initLiveChart() {
+            liveChart = new Chart(document.getElementById('liveChart').getContext('2d'), {
+                type: 'line',
+                data: {
+                    labels: [], datasets: [
+                        { label: 'Pump %', data: [], borderColor: '#d97736', yAxisID: 'yPower', backgroundColor: 'rgba(217,119,54,0.1)', fill: true },
+                        { label: 'Flow (g/s)', data: [], borderColor: '#3b82f6', yAxisID: 'yFlow', backgroundColor: 'rgba(59, 130, 246, 0.1)', borderWidth: 3, fill: true },
+                        { label: 'Temp (°C)', data: [], borderColor: '#ef4444', yAxisID: 'yTemp', borderDash: [5, 5] },
+                        { label: 'Target Pwr', data: [], borderColor: 'rgba(217, 119, 54, 0.4)', yAxisID: 'yPower', borderWidth: 5, borderDash: [5, 5] },
+                        { label: 'Target Flow', data: [], borderColor: 'rgba(59, 130, 246, 0.4)', yAxisID: 'yFlow', borderWidth: 5, borderDash: [5, 5] }
+                    ]
+                },
+                options: chartOptions
+            });
+        }
+
+        let historyChartInit = false, historyChart;
+        function renderHistoryChart() {
+            let hOpts = JSON.parse(JSON.stringify(chartOptions));
+            hOpts.animation = true;
+            hOpts.scales.x.ticks.callback = chartOptions.scales.x.ticks.callback;
+            historyChart = new Chart(document.getElementById('historyChart').getContext('2d'), {
+                type: 'line', data: { labels: [], datasets: [] }, options: hOpts
+            });
+            historyChartInit = true;
+        }
+
+        let savedChartInit = false, savedChart;
+        function renderSavedChart() {
+            let hOpts = JSON.parse(JSON.stringify(chartOptions));
+            hOpts.animation = true;
+            hOpts.scales.x.ticks.callback = chartOptions.scales.x.ticks.callback;
+            savedChart = new Chart(document.getElementById('savedChart').getContext('2d'), {
+                type: 'line', data: { labels: [], datasets: [] }, options: hOpts
+            });
+            savedChartInit = true;
+        }
+
+        function loadHistoryShot(index) {
+            currentHistoryIndex = index;
+            const shot = historyDB[index];
+            if (!shot) return;
+
+            document.getElementById('hist-profile').innerText = shot.name;
+            document.getElementById('hist-date').innerText = shot.date;
+            document.getElementById('hist-in').innerText = shot.dose.toFixed(1) + ' g';
+            document.getElementById('hist-out').innerText = shot.yield.toFixed(1) + ' g';
+            document.getElementById('hist-time').innerText = shot.time.toFixed(1) + ' s';
+            document.getElementById('hist-ratio').innerText = '1:' + (shot.yield / shot.dose).toFixed(1);
+
+            const tPowerData = (shot.data.tP || shot.data.target || []).map(v => v > 0 ? v : null);
+            const tFlowData = (shot.data.tF || []).map(v => v > 0 ? v : null);
+
+            historyChart.data = {
+                labels: shot.data.time,
+                datasets: [
+                    { label: 'Pump %', data: shot.data.power, borderColor: '#d97736', yAxisID: 'yPower', backgroundColor: 'rgba(217,119,54,0.1)', fill: true },
+                    { label: 'Flow (g/s)', data: shot.data.flow, borderColor: '#3b82f6', yAxisID: 'yFlow', backgroundColor: 'rgba(59, 130, 246, 0.1)', borderWidth: 3, fill: true },
+                    { label: 'Temp (°C)', data: shot.data.temp, borderColor: '#ef4444', yAxisID: 'yTemp', borderDash: [5, 5] },
+                    { label: 'Target Pwr', data: tPowerData, borderColor: 'rgba(217, 119, 54, 0.4)', yAxisID: 'yPower', borderWidth: 5, borderDash: [5, 5] },
+                    { label: 'Target Flow', data: tFlowData, borderColor: 'rgba(59, 130, 246, 0.4)', yAxisID: 'yFlow', borderWidth: 5, borderDash: [5, 5] }
+                ]
+            };
+
+            historyChart.update();
+        }
+
+        function loadSavedShot(id) {
+            currentSavedId = id;
+            const entry = savedDB[id];
+            if (!entry) return;
+
+            const shot = entry.shot;
+            const meta = entry.metadata;
+
+            document.getElementById('saved-title-beans').innerText = meta.beans || 'Unknown Beans';
+            document.getElementById('saved-date').innerText = shot.date;
+
+            // Stats updates
+            document.getElementById('saved-in').innerText = shot.dose.toFixed(1) + ' g';
+            document.getElementById('saved-out-stat').innerText = shot.yield.toFixed(1) + ' g';
+            document.getElementById('saved-time').innerText = shot.time.toFixed(1) + ' s';
+            document.getElementById('saved-ratio-stat').innerText = '1:' + (shot.yield / shot.dose).toFixed(1);
+
+            // Meta updates
+            document.getElementById('saved-profile-used').innerText = shot.name || 'N/A';
+            document.getElementById('saved-grinder').innerText = meta.grinder || 'N/A';
+            document.getElementById('saved-notes').innerText = meta.notes || 'No notes added.';
+
+            // Render interactive star display inside the header
+            const ratingNum = parseFloat(meta.rating) || 0;
+            document.getElementById('saved-header-rating').innerHTML = getStarsHTML(ratingNum, 'w-5 h-5 text-yellow-500') + `<span class="ml-2 text-sm text-gray-300 font-bold">${ratingNum.toFixed(1)} <span class="text-gray-500 font-normal">/ 5</span></span>`;
+
+            const tPowerData = (shot.data.tP || shot.data.target || []).map(v => v > 0 ? v : null);
+            const tFlowData = (shot.data.tF || []).map(v => v > 0 ? v : null);
+
+            savedChart.data = {
+                labels: shot.data.time,
+                datasets: [
+                    { label: 'Pump %', data: shot.data.power, borderColor: '#d97736', yAxisID: 'yPower', backgroundColor: 'rgba(217,119,54,0.1)', fill: true },
+                    { label: 'Flow (g/s)', data: shot.data.flow, borderColor: '#3b82f6', yAxisID: 'yFlow', backgroundColor: 'rgba(59, 130, 246, 0.1)', borderWidth: 3, fill: true },
+                    { label: 'Temp (°C)', data: shot.data.temp, borderColor: '#ef4444', yAxisID: 'yTemp', borderDash: [5, 5] },
+                    { label: 'Target Pwr', data: tPowerData, borderColor: 'rgba(217, 119, 54, 0.4)', yAxisID: 'yPower', borderWidth: 5, borderDash: [5, 5] },
+                    { label: 'Target Flow', data: tFlowData, borderColor: 'rgba(59, 130, 246, 0.4)', yAxisID: 'yFlow', borderWidth: 5, borderDash: [5, 5] }
+                ]
+            };
+
+            savedChart.update();
+        }
+    </script>
+</body>
+
+</html>

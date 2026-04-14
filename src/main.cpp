@@ -1,22 +1,23 @@
 /* Todo:
 
-Current:
+Sofware:
+--- FRONTEND ---
+
+
+--- ENGINE & CONTROL ---
+- Wifi Manager for access point and wifi management
+- Mapping Pump percentage and Pressure computed based on OPV volume measured
+- PI(D) For pump % in flow control
+- Kickstart" a pump by setting it to 100 for a few hundred milliseconds before
+dropping it down
+
+--- HARDWARE & INTEGRATION ---
 - Which power supply?
-- PI For pump % in flow control
-- Might need to implement a stopCondition function to test the end of the shot
-- Check the nuber of available gpio
-- USe the HX711_ADC.h library?
-- Reviewx pump percentage function: if machine stopped, the dimmer needs to be
-fully on.
-- Kickstart" a pump by setting it to 100 for a few hundred milliseconds
-before dropping it down
+
 
 Before Production:
 - Test implementation of the FORCE_HEATER_TIME variable
 - Update scale initials parameters / put them in define
-- Update refresh rate
-- Update the line:   vTaskDelay(pdMS_TO_TICKS(5)); to 1 only to avoid slow
-computation
 - Integrate PID close to XMP7100 values
 https://gemini.google.com/app/a45d001951bd94d5
 - Test minimum pump percentage
@@ -24,19 +25,17 @@ https://gemini.google.com/app/a45d001951bd94d5
 
 Roadmap and low priority:
 - Water level sensor
+- Estimate the pressure based on flow rate and pump curve (estimated empirically
+with OPV valve)
 - Possible to migrate to a touch screen?
-- Web interface
 - Integration HA for machine readiness notification
-- Store the last 5 shots in memory as an history? Available in the settings as
-an entry?
-- why do I have the warm up screen after the splashscreen even if temp ok
-
 
 */
 
 #include "Display.h"
 #include "Globals.h"
 #include "Hardware.h"
+#include "Web.h"
 
 // --- Forward Declarations ---
 void loadSettings();
@@ -52,6 +51,7 @@ void startBrew();
 void stopShot();
 void finishShot();
 void updateActiveSettings();
+void refreshProfileList();
 
 // --- FreeRTOS Task Handle ---
 TaskHandle_t displayTaskHandle;
@@ -80,6 +80,11 @@ void displayTaskCode(void *pvParameters) {
 
 void setup() {
   Serial.begin(115200);
+
+  initWiFi(SECRET_SSID, SECRET_PASS);
+  initWebServer();
+  configTzTime(TZ_INFO, ntpServer);
+
   initHardware();
   initDisplay();
   loadSettings();
@@ -100,6 +105,13 @@ void setup() {
 
 // --- CORE 1: Main Coffee Logic ---
 void loop() {
+  // Clean up WebSocket clients periodically
+  static unsigned long lastCleanup = 0;
+  if (millis() - lastCleanup > 2000) {
+    cleanupWebClients();
+    lastCleanup = millis();
+  }
+
   handleHeater();
   updateWeight();
   updateBrewCycle();
@@ -111,8 +123,7 @@ void loop() {
     newClickAvailable = false;
   }
 
-  // Yield to FreeRTOS (Crucial for Wokwi Simulation & Watchdog Timer)
-  vTaskDelay(pdMS_TO_TICKS(5));
+  // vTaskDelay(pdMS_TO_TICKS(1));
 }
 
 // --- Logic Implementation ---
@@ -120,27 +131,6 @@ void loop() {
 void updateActiveSettings() {
   activeSettingsCount = 0;
   activeSettings[activeSettingsCount++] = PROFILE_SEL;
-
-  if (selectedProfile == PROFILE_FLAT) {
-    activeSettings[activeSettingsCount++] = SOAK_PWR;
-    activeSettings[activeSettingsCount++] = SOAK_WGHT;
-    activeSettings[activeSettingsCount++] = TGT_FLOW;
-  } else if (selectedProfile == PROFILE_BLOOMING) {
-    activeSettings[activeSettingsCount++] = SOAK_PWR;
-    activeSettings[activeSettingsCount++] = SOAK_WGHT;
-    activeSettings[activeSettingsCount++] = BLOOM;
-    activeSettings[activeSettingsCount++] = TGT_FLOW;
-  } else if (selectedProfile == PROFILE_LONDINIUM) {
-    activeSettings[activeSettingsCount++] = SOAK_PWR;
-    activeSettings[activeSettingsCount++] = SOAK_WGHT;
-    activeSettings[activeSettingsCount++] = START_FLOW;
-    activeSettings[activeSettingsCount++] = END_FLOW;
-  } else if (selectedProfile == PROFILE_SLAYER) {
-    activeSettings[activeSettingsCount++] = SOAK_PWR;
-    activeSettings[activeSettingsCount++] = SOAK_WGHT;
-    activeSettings[activeSettingsCount++] = TGT_FLOW;
-  }
-
   activeSettings[activeSettingsCount++] = FLOW_FACT;
   activeSettings[activeSettingsCount++] = TGT_TEMP;
   activeSettings[activeSettingsCount++] = TEMP_OFF;
@@ -152,37 +142,54 @@ void updateActiveSettings() {
   }
 }
 
+void refreshProfileList() {
+  String ids = getAvailableProfileIDs(); // Assuming this returns
+                                         // "london_strand,flat_9_bar"
+  numAvailableProfiles = 0;
+  int startIdx = 0;
+  int endIdx = ids.indexOf(',');
+
+  while (endIdx != -1 && numAvailableProfiles < 15) {
+    availableProfiles[numAvailableProfiles++] = ids.substring(startIdx, endIdx);
+    startIdx = endIdx + 1;
+    endIdx = ids.indexOf(',', startIdx);
+  }
+  if (startIdx < ids.length() && numAvailableProfiles < 15) {
+    availableProfiles[numAvailableProfiles++] = ids.substring(startIdx);
+  }
+  if (numAvailableProfiles == 0) {
+    availableProfiles[0] = "new";
+    numAvailableProfiles = 1;
+  }
+}
+
 void loadSettings() {
   prefs.begin("silvia", false);
   targetTemp = prefs.getFloat("tTemp", DEFAULT_TARGET_TEMP);
   tempOffset = prefs.getFloat("dTempOffset", DEFAULT_TEMP_OFFSET);
   coffeeWeight = prefs.getFloat("dCoffeeWeight", DEFAULT_COFFEE_WEIGHT);
   ratio = prefs.getFloat("dRatio", DEFAULT_RATIO);
-  selectedProfile = (BrewProfile)prefs.getInt("profileSel", PROFILE_FLAT);
-  bloomTime = prefs.getInt("dBloomTime", DEFAULT_BLOOM_TIME);
   flowStopFactor = prefs.getFloat("dflowStopFactor", DEFAULT_FLOW_STOP_FACTOR);
-
-  flatSoakPower = prefs.getInt("fSPwr", DEFAULT_SOAK_POWER);
-  flatSoakWeight = prefs.getFloat("fSWgt", DEFAULT_SOAK_WEIGHT);
-  flatTargetFlow = prefs.getFloat("fTFlw", DEFAULT_TARGET_FLOW);
-
-  bloomSoakPower = prefs.getInt("bSPwr", DEFAULT_SOAK_POWER);
-  bloomSoakWeight = prefs.getFloat("bSWgt", DEFAULT_SOAK_WEIGHT);
-  bloomTargetFlow = prefs.getFloat("bTFlw", DEFAULT_TARGET_FLOW);
-
-  londSoakPower = prefs.getInt("lSPwr", DEFAULT_SOAK_POWER);
-  londSoakWeight = prefs.getFloat("lSWgt", DEFAULT_SOAK_WEIGHT);
-  londStartFlow = prefs.getFloat("lSFlw", DEFAULT_START_FLOW);
-  londEndFlow = prefs.getFloat("lEFlw", DEFAULT_END_FLOW);
-
-  slaySoakPower = prefs.getInt("slSPwr", DEFAULT_SOAK_POWER);
-  slaySoakWeight = prefs.getFloat("slSWgt", DEFAULT_SOAK_WEIGHT);
-  slayTargetFlow = prefs.getFloat("slTFlw", DEFAULT_TARGET_FLOW);
 
   lastShotWeight = prefs.getFloat("lShtWght", 0.0);
   lastShotTime = prefs.getFloat("lShtTime", 0.0);
   lastShotRatio = prefs.getFloat("lShtRatio", 0.0);
-  lastProfile = (BrewProfile)prefs.getInt("lShtProfile", PROFILE_FLAT);
+
+  // Load dynamic profile list and init last used profile
+  refreshProfileList();
+  String lastProfId = prefs.getString("lastProfId", availableProfiles[0]);
+
+  // Find index of saved profile to set menu position
+  selectedProfileIndex = 0;
+  for (int i = 0; i < numAvailableProfiles; i++) {
+    if (availableProfiles[i] == lastProfId) {
+      selectedProfileIndex = i;
+      break;
+    }
+  }
+
+  // Load the actual JSON data into currentProfile
+  loadProfile(availableProfiles[selectedProfileIndex], currentProfile);
 
   updateActiveSettings();
 }
@@ -214,8 +221,9 @@ void handleScreensaver() {
 }
 
 void startBrew() {
+  loadProfile(availableProfiles[selectedProfileIndex], currentProfile);
   tareScales();
-
+  broadcastShotStart(currentProfile.name, coffeeWeight);
   currentWeight = 0;
   rawCurrentWeight = 0;
   currentFlowRate = 0;
@@ -223,12 +231,17 @@ void startBrew() {
   previousRawWeight = 0;
   previousWeightTime = millis();
 
+  // Reset Phase Logic
   brewStartTime = millis();
-  bloomStartTime = 0;
-  extractStartTime = 0;
+  phaseStartTime = brewStartTime;
+  currentPhaseNum = 1;
+  lastTelemetryTime = 0;
+
+  // Initialize History Count
+  histCount = 0;
+
   setValve(true);
   currentState = EXTRACTION;
-  currentBrewPhase = SOAK;
 }
 
 void updateBrewCycle() {
@@ -237,7 +250,10 @@ void updateBrewCycle() {
 
   unsigned long now = millis();
   float dt = (now - previousWeightTime) / 1000.0;
-  if (dt >= FLOW_CALC_INTERVAL_S && currentState == EXTRACTION) {
+
+  // EMA Flow Calculation
+  if (dt >= FLOW_CALC_INTERVAL_S &&
+      (currentState == EXTRACTION || currentState == DONE)) {
     float instantFlow = (rawCurrentWeight - previousRawWeight) / dt;
     if (isnan(instantFlow) || isinf(instantFlow) || instantFlow < 0)
       instantFlow = 0;
@@ -249,6 +265,7 @@ void updateBrewCycle() {
     previousWeightTime = now;
   }
 
+  // Global Target Exit Condition
   if (currentState == EXTRACTION &&
       currentWeight >=
           ((coffeeWeight * ratio) - (currentFlowRate * flowStopFactor * 0.5))) {
@@ -256,70 +273,124 @@ void updateBrewCycle() {
     return;
   }
 
+  float totalElapsed = (now - brewStartTime) / 1000.0;
+  float targetPower = 0;
+  float targetFlow = 0;
+  float logPower = 0; // The power logged into telemetry
+
+  // Phase Execution Logic
   if (currentState == EXTRACTION) {
-    unsigned long elapsed = (now - brewStartTime) / 1000;
+    float phaseElapsed = (now - phaseStartTime) / 1000.0;
+    bool isFlowMode = false;
 
-    int sPwr = 100;
-    float sWgt = 0.5;
-    if (selectedProfile == PROFILE_FLAT) {
-      sPwr = flatSoakPower;
-      sWgt = flatSoakWeight;
-    } else if (selectedProfile == PROFILE_BLOOMING) {
-      sPwr = bloomSoakPower;
-      sWgt = bloomSoakWeight;
-    } else if (selectedProfile == PROFILE_LONDINIUM) {
-      sPwr = londSoakPower;
-      sWgt = londSoakWeight;
-    } else if (selectedProfile == PROFILE_SLAYER) {
-      sPwr = slaySoakPower;
-      sWgt = slaySoakWeight;
-    }
+    // --- PHASE 1: PREINFUSION ---
+    if (currentPhaseNum == 1) {
+      isFlowMode = false;
+      float progress =
+          (currentProfile.phase1.time > 0)
+              ? min(1.0f, phaseElapsed / currentProfile.phase1.time)
+              : 1.0f;
+      targetPower =
+          currentProfile.phase1.start +
+          (currentProfile.phase1.end - currentProfile.phase1.start) * progress;
+      setPumpPercentage((int)targetPower);
 
-    if (currentBrewPhase == SOAK) {
-      setPumpPercentage(sPwr);
-      if (currentWeight >= sWgt) {
-        if (selectedProfile == PROFILE_BLOOMING) {
-          currentBrewPhase = BLOOM_PHASE;
-          bloomStartTime = now;
-        } else {
-          currentBrewPhase = EXTRACT;
-          extractStartTime = now;
-        }
+      // Exit logic
+      if (currentWeight >= currentProfile.phase1.exitWeight ||
+          (currentProfile.phase1.exitTime > 0 &&
+           phaseElapsed >= currentProfile.phase1.exitTime)) {
+        currentPhaseNum = 2;
+        phaseStartTime = now;
       }
     }
+    // --- PHASE 2: HOLD / BLOOM ---
+    else if (currentPhaseNum == 2) {
+      isFlowMode = (currentProfile.phase2.mode == "flow");
+      float progress =
+          (currentProfile.phase2.time > 0)
+              ? min(1.0f, phaseElapsed / currentProfile.phase2.time)
+              : 1.0f;
 
-    if (currentBrewPhase == BLOOM_PHASE) {
-      setPumpPercentage(0);
-      unsigned long elapsedBloom = (now - bloomStartTime) / 1000;
-      if (elapsedBloom >= (unsigned long)bloomTime) {
-        currentBrewPhase = EXTRACT;
-        extractStartTime = now;
+      if (isFlowMode) {
+        targetFlow = currentProfile.phase2.start +
+                     (currentProfile.phase2.end - currentProfile.phase2.start) *
+                         progress;
+        if (currentFlowRate < targetFlow)
+          setPumpPercentage(min((int)currentPumpPercentage + 2, 100));
+        else if (currentFlowRate > targetFlow)
+          setPumpPercentage(max((int)currentPumpPercentage - 2, 1));
+      } else {
+        targetPower =
+            currentProfile.phase2.start +
+            (currentProfile.phase2.end - currentProfile.phase2.start) *
+                progress;
+        setPumpPercentage((int)targetPower);
+      }
+
+      // Exit logic
+      if (currentWeight >= currentProfile.phase2.exitWeight ||
+          (currentProfile.phase2.exitTime > 0 &&
+           phaseElapsed >= currentProfile.phase2.exitTime)) {
+        currentPhaseNum = 3;
+        phaseStartTime = now;
       }
     }
+    // --- PHASE 3: EXTRACTION TAPERING ---
+    else if (currentPhaseNum == 3) {
+      isFlowMode = (currentProfile.phase3.mode == "flow");
+      float progress =
+          (currentProfile.phase3.time > 0)
+              ? min(1.0f, phaseElapsed / currentProfile.phase3.time)
+              : 1.0f;
 
-    if (currentBrewPhase == EXTRACT) {
-      float targetFlow = 0;
-      if (selectedProfile == PROFILE_FLAT)
-        targetFlow = flatTargetFlow;
-      else if (selectedProfile == PROFILE_BLOOMING)
-        targetFlow = bloomTargetFlow;
-      else if (selectedProfile == PROFILE_SLAYER)
-        targetFlow = slayTargetFlow;
-      else if (selectedProfile == PROFILE_LONDINIUM) {
-        float progress = currentWeight / (coffeeWeight * ratio);
-        targetFlow = londStartFlow - ((londStartFlow - londEndFlow) *
-                                      constrain(progress, 0.0f, 1.0f));
-      }
-
-      if (currentFlowRate < targetFlow) {
-        setPumpPercentage(min((int)currentPumpPercentage + 2, 100));
-      } else if (currentFlowRate > targetFlow) {
-        setPumpPercentage(
-            max((int)currentPumpPercentage - 2, MIN_PUMP_PERCENTAGE));
+      if (isFlowMode) {
+        targetFlow = currentProfile.phase3.start +
+                     (currentProfile.phase3.end - currentProfile.phase3.start) *
+                         progress;
+        if (currentFlowRate < targetFlow)
+          setPumpPercentage(min((int)currentPumpPercentage + 2, 100));
+        else if (currentFlowRate > targetFlow)
+          setPumpPercentage(max((int)currentPumpPercentage - 2, 1));
+      } else {
+        targetPower =
+            currentProfile.phase3.start +
+            (currentProfile.phase3.end - currentProfile.phase3.start) *
+                progress;
+        setPumpPercentage((int)targetPower);
       }
     }
+    logPower = currentPumpPercentage;
+  } else if (currentState == DONE) {
+    targetPower = 0;
+    targetFlow = 0;
+    logPower = 0;
   }
 
+  // --- TELEMETRY & GRAPH UPDATING (5Hz) ---
+  // Broadcasts during EXTRACTION and DONE phases
+  if (now - lastTelemetryTime >= 200) {
+    lastTelemetryTime = now;
+
+    // Update Live UI
+    broadcastTelemetry(totalElapsed, logPower, targetPower, targetFlow,
+                       currentFlowRate, currentTemp, currentWeight);
+
+    // Save to History Memory
+    if (histCount < MAX_TELEMETRY_POINTS) {
+      histTime[histCount] = totalElapsed;
+      histTargetP[histCount] = targetPower;
+      histTargetF[histCount] = targetFlow;
+      histPower[histCount] = logPower;
+      histFlow[histCount] = currentFlowRate;
+      histTemp[histCount] = currentTemp;
+      histCount++;
+    }
+    Serial.printf("Shot Time: %.1fs | State: %s | Free Heap: %u\n",
+                  totalElapsed, (currentState == EXTRACTION) ? "EXT" : "DONE",
+                  ESP.getFreeHeap());
+  }
+
+  // After the post-shot drip delay finishes, officially exit to home/warming
   if (currentState == DONE &&
       (millis() - doneStartTime >= DRIP_CATCH_DELAY_MS)) {
     finishShot();
@@ -328,7 +399,8 @@ void updateBrewCycle() {
 
 void stopShot() {
   setPump(false);
-  pumpDimmer.setPower(100);
+  pumpDimmer.setPower(100); // Let the pump 100% while espresso not wrewing to
+                            // ensure manual operation of the pump
   setValve(false);
   lastShotTime = (millis() - brewStartTime) / 1000.0;
   doneStartTime = millis();
@@ -338,12 +410,15 @@ void stopShot() {
 void finishShot() {
   lastShotWeight = currentWeight;
   lastShotRatio = lastShotWeight / coffeeWeight;
-  lastProfile = selectedProfile;
 
   prefs.putFloat("lShtWght", lastShotWeight);
   prefs.putFloat("lShtTime", lastShotTime);
   prefs.putFloat("lShtRatio", lastShotRatio);
-  prefs.putInt("lShtProfile", lastProfile);
+  prefs.putString("lastProfId", availableProfiles[selectedProfileIndex]);
+
+  // Send shot data to LittleFS History
+  saveShotToHistory(currentProfile.name, coffeeWeight, lastShotWeight,
+                    lastShotTime);
 
   warmingOverridden = false;
   currentState = (currentTemp >= (pidSet - TEMP_MARGIN)) ? HOME : WARMING;
@@ -394,7 +469,6 @@ void handleShortClick() {
       currentState = (currentTemp >= (pidSet - TEMP_MARGIN)) ? HOME : WARMING;
       encoder.setCount(coffeeWeight * 40);
     } else if (activeSettings[currentSettingIndex] == SCALE_MODE) {
-      // Explicit Tare with UI Feedback
       isTaring = true;
       tareScales();
       isTaring = false;
@@ -402,43 +476,10 @@ void handleShortClick() {
       isEditingValue = !isEditingValue;
       if (!isEditingValue) {
         SettingItem item = activeSettings[currentSettingIndex];
+        // Only save global values that exist in this simplified menu
         if (item == PROFILE_SEL)
-          prefs.putInt("profileSel", selectedProfile);
-        if (item == BLOOM)
-          prefs.putInt("dBloomTime", bloomTime);
-        if (item == SOAK_PWR) {
-          if (selectedProfile == PROFILE_FLAT)
-            prefs.putInt("fSPwr", flatSoakPower);
-          else if (selectedProfile == PROFILE_BLOOMING)
-            prefs.putInt("bSPwr", bloomSoakPower);
-          else if (selectedProfile == PROFILE_LONDINIUM)
-            prefs.putInt("lSPwr", londSoakPower);
-          else if (selectedProfile == PROFILE_SLAYER)
-            prefs.putInt("slSPwr", slaySoakPower);
-        }
-        if (item == SOAK_WGHT) {
-          if (selectedProfile == PROFILE_FLAT)
-            prefs.putFloat("fSWgt", flatSoakWeight);
-          else if (selectedProfile == PROFILE_BLOOMING)
-            prefs.putFloat("bSWgt", bloomSoakWeight);
-          else if (selectedProfile == PROFILE_LONDINIUM)
-            prefs.putFloat("lSWgt", londSoakWeight);
-          else if (selectedProfile == PROFILE_SLAYER)
-            prefs.putFloat("slSWgt", slaySoakWeight);
-        }
-        if (item == TGT_FLOW) {
-          if (selectedProfile == PROFILE_FLAT)
-            prefs.putFloat("fTFlw", flatTargetFlow);
-          else if (selectedProfile == PROFILE_BLOOMING)
-            prefs.putFloat("bTFlw", bloomTargetFlow);
-          else if (selectedProfile == PROFILE_SLAYER)
-            prefs.putFloat("slTFlw", slayTargetFlow);
-        }
-        if (item == START_FLOW)
-          prefs.putFloat("lSFlw", londStartFlow);
-        if (item == END_FLOW)
-          prefs.putFloat("lEFlw", londEndFlow);
-
+          prefs.putString("lastProfId",
+                          availableProfiles[selectedProfileIndex]);
         if (item == FLOW_FACT)
           prefs.putFloat("dflowStopFactor", flowStopFactor);
         if (item == TGT_TEMP)
@@ -450,42 +491,7 @@ void handleShortClick() {
       } else {
         SettingItem item = activeSettings[currentSettingIndex];
         if (item == PROFILE_SEL)
-          encoder.setCount(selectedProfile * 4);
-        if (item == BLOOM)
-          encoder.setCount(bloomTime * 4);
-        if (item == SOAK_PWR) {
-          if (selectedProfile == PROFILE_FLAT)
-            encoder.setCount(flatSoakPower * 4);
-          else if (selectedProfile == PROFILE_BLOOMING)
-            encoder.setCount(bloomSoakPower * 4);
-          else if (selectedProfile == PROFILE_LONDINIUM)
-            encoder.setCount(londSoakPower * 4);
-          else if (selectedProfile == PROFILE_SLAYER)
-            encoder.setCount(slaySoakPower * 4);
-        }
-        if (item == SOAK_WGHT) {
-          if (selectedProfile == PROFILE_FLAT)
-            encoder.setCount(flatSoakWeight * 40);
-          else if (selectedProfile == PROFILE_BLOOMING)
-            encoder.setCount(bloomSoakWeight * 40);
-          else if (selectedProfile == PROFILE_LONDINIUM)
-            encoder.setCount(londSoakWeight * 40);
-          else if (selectedProfile == PROFILE_SLAYER)
-            encoder.setCount(slaySoakWeight * 40);
-        }
-        if (item == TGT_FLOW) {
-          if (selectedProfile == PROFILE_FLAT)
-            encoder.setCount(flatTargetFlow * 40);
-          else if (selectedProfile == PROFILE_BLOOMING)
-            encoder.setCount(bloomTargetFlow * 40);
-          else if (selectedProfile == PROFILE_SLAYER)
-            encoder.setCount(slayTargetFlow * 40);
-        }
-        if (item == START_FLOW)
-          encoder.setCount(londStartFlow * 40);
-        if (item == END_FLOW)
-          encoder.setCount(londEndFlow * 40);
-
+          encoder.setCount(selectedProfileIndex * 4);
         if (item == FLOW_FACT)
           encoder.setCount(flowStopFactor * 40);
         if (item == TGT_TEMP)
@@ -502,6 +508,9 @@ void handleLongPress() {
   if (currentState == WARMING || currentState == HOME || currentState == DONE) {
     if (currentState == DONE)
       finishShot();
+
+    refreshProfileList(); // Reload the JSON file list before entering menu
+
     currentState = SETTINGS;
     currentSettingIndex = 0;
     encoder.setCount(currentSettingIndex * 4);
@@ -548,56 +557,23 @@ void handleEncoderLogic() {
           activeSettingsCount;
     } else {
       SettingItem item = activeSettings[currentSettingIndex];
+
       if (item == TGT_TEMP)
         targetTemp = menuCount;
-      if (item == PROFILE_SEL) {
-        selectedProfile = (BrewProfile)((menuCount % 4 + 4) % 4);
-        updateActiveSettings();
-      }
-      if (item == BLOOM)
-        bloomTime = menuCount;
-      if (item == SOAK_PWR) {
-        int pwr = max(10, min((int)menuCount, 100));
-        if (pwr != menuCount)
-          encoder.setCount(pwr * 4);
-        if (selectedProfile == PROFILE_FLAT)
-          flatSoakPower = pwr;
-        else if (selectedProfile == PROFILE_BLOOMING)
-          bloomSoakPower = pwr;
-        else if (selectedProfile == PROFILE_LONDINIUM)
-          londSoakPower = pwr;
-        else if (selectedProfile == PROFILE_SLAYER)
-          slaySoakPower = pwr;
-      }
-      if (item == SOAK_WGHT) {
-        float wght = max(0.0f, rawCount / 40.0f);
-        if (selectedProfile == PROFILE_FLAT)
-          flatSoakWeight = wght;
-        else if (selectedProfile == PROFILE_BLOOMING)
-          bloomSoakWeight = wght;
-        else if (selectedProfile == PROFILE_LONDINIUM)
-          londSoakWeight = wght;
-        else if (selectedProfile == PROFILE_SLAYER)
-          slaySoakWeight = wght;
-      }
-      if (item == TGT_FLOW) {
-        float flw = max(0.0f, rawCount / 40.0f);
-        if (selectedProfile == PROFILE_FLAT)
-          flatTargetFlow = flw;
-        else if (selectedProfile == PROFILE_BLOOMING)
-          bloomTargetFlow = flw;
-        else if (selectedProfile == PROFILE_SLAYER)
-          slayTargetFlow = flw;
-      }
-      if (item == START_FLOW)
-        londStartFlow = max(0.0f, rawCount / 40.0f);
-      if (item == END_FLOW)
-        londEndFlow = max(0.0f, rawCount / 40.0f);
-
       if (item == FLOW_FACT)
         flowStopFactor = rawCount / 40.0f;
       if (item == TEMP_OFF)
         tempOffset = rawCount / 40.0f;
+
+      if (item == PROFILE_SEL) {
+        if (numAvailableProfiles > 0) {
+          selectedProfileIndex =
+              (menuCount % numAvailableProfiles + numAvailableProfiles) %
+              numAvailableProfiles;
+          // Load the newly selected profile into RAM dynamically
+          loadProfile(availableProfiles[selectedProfileIndex], currentProfile);
+        }
+      }
     }
     break;
   }
