@@ -12,8 +12,6 @@
 #include <Wire.h>
 
 #include "Config.h"
-#include "secrets.h"
-
 
 // --- Enums ---
 enum State {
@@ -24,7 +22,8 @@ enum State {
   EXTRACTION,
   DONE,
   SETTINGS,
-  SENSOR_ERROR
+  SENSOR_ERROR,
+  WATER_LOW_ALERT
 };
 enum SettingItem {
   PROFILE_SEL,
@@ -37,6 +36,7 @@ enum SettingItem {
   FLOW_FACT,
   TGT_TEMP,
   TEMP_OFF,
+  PUMP_MIN,
   SCALE_MODE,
   EXIT_MENU
 };
@@ -83,9 +83,15 @@ extern float smoothedTemp;
 extern volatile unsigned long lastScaleReadTime;
 extern volatile bool isTaring;
 
+// --- Flow Control State Variables ---
+extern bool newScaleReadingAvailable;
+extern float lastWeight;
+extern unsigned long lastWeightTime;
+
 // --- Settings ---
 extern float targetTemp, tempOffset, coffeeWeight, ratio, flowStopFactor;
 extern int bloomTime;
+extern int minPumpPercentage;
 
 // --- Profile Variables ---
 extern int flatSoakPower, bloomSoakPower, londSoakPower, slaySoakPower;
@@ -101,6 +107,7 @@ extern int currentSettingIndex;
 extern State currentState;
 extern bool isEditingValue;
 extern uint8_t currentPumpPercentage;
+extern bool newScaleReadingAvailable;
 extern BrewPhase currentBrewPhase;
 extern BrewProfile selectedProfile, lastProfile;
 extern float currentTemp, currentWeight, rawCurrentWeight, currentFlowRate,
@@ -111,6 +118,8 @@ extern float lastShotWeight, lastShotTime, lastShotRatio;
 extern String currentProfileStr, lastProfileStr;
 extern unsigned long lastUpdate;
 extern bool warmingOverridden;
+extern bool isWaterLow;
+extern bool waterLowDismissed;
 
 // --- Screensaver Variables ---
 extern unsigned long lastActivityTime;
@@ -127,7 +136,6 @@ extern unsigned long phaseStartTime;
 
 // --- Active Shot Memory ---
 #define MAX_TELEMETRY_POINTS 350 // 350 points = 70 seconds of data at 5Hz
-
 extern float histTime[MAX_TELEMETRY_POINTS];
 extern float histTargetP[MAX_TELEMETRY_POINTS];
 extern float histTargetF[MAX_TELEMETRY_POINTS];

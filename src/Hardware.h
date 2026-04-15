@@ -11,5 +11,6 @@ void setValve(bool state);
 void setHeater(bool state);
 void handleHeater();
 void updateWeight();
+void checkWaterLevel();
 void IRAM_ATTR handleButtonInterrupt();
 extern dimmerLamp pumpDimmer;

@@ -26,6 +26,7 @@ float coffeeWeight = DEFAULT_COFFEE_WEIGHT;
 float ratio = DEFAULT_RATIO;
 int bloomTime = DEFAULT_BLOOM_TIME;
 float flowStopFactor = DEFAULT_FLOW_STOP_FACTOR;
+int minPumpPercentage = 30;
 
 int flatSoakPower = DEFAULT_SOAK_POWER;
 int bloomSoakPower = DEFAULT_SOAK_POWER;
@@ -52,6 +53,7 @@ int currentSettingIndex = 0;
 State currentState = WARMING;
 bool isEditingValue = false;
 uint8_t currentPumpPercentage = 0;
+bool newScaleReadingAvailable = false;
 
 float currentTemp = 0;
 float currentWeight = 0;
@@ -71,6 +73,8 @@ float lastShotWeight = 0, lastShotTime = 0, lastShotRatio = 0;
 String currentProfileStr = "", lastProfileStr = "";
 unsigned long lastUpdate = 0;
 bool warmingOverridden = false;
+bool isWaterLow = false;
+bool waterLowDismissed = false;
 
 // --- Screensaver Initialization ---
 unsigned long lastActivityTime = 0;

@@ -34,6 +34,9 @@ void renderHeader() {
   case DONE:
     phaseStr = "Done";
     break;
+  case WATER_LOW_ALERT:
+    phaseStr = "Alert";
+    break;
   default:
     break;
   }
@@ -199,6 +202,10 @@ void renderSettings() {
       label = "Temp Offset";
       val = String(tempOffset, 1) + " \xb0" + "C";
       break;
+    case PUMP_MIN:
+      label = "Min Pump";
+      val = String(minPumpPercentage) + " %";
+      break;
     case SCALE_MODE:
       label = "Scale Mode";
       if (isTaring || (millis() - lastScaleReadTime > 1000)) {
@@ -229,6 +236,15 @@ void renderSensorError() {
   u8g2.setFont(u8g2_font_helvR08_tf);
   u8g2.drawStr((128 - u8g2.getStrWidth("Check Thermocouple!")) / 2, 45,
                "Check Thermocouple!");
+}
+
+void renderWaterLowAlert() {
+  u8g2.setFont(u8g2_font_helvB08_tf);
+  u8g2.drawStr((128 - u8g2.getStrWidth("WATER LOW!")) / 2, 30, "WATER LOW!");
+  u8g2.setFont(u8g2_font_helvR08_tf);
+  u8g2.drawStr((128 - u8g2.getStrWidth("Refill tank")) / 2, 45, "Refill tank");
+  u8g2.drawStr((128 - u8g2.getStrWidth("- Click to dismiss -")) / 2, 60,
+               "- Click to dismiss -");
 }
 
 // --- Public Entry Point ---
@@ -276,6 +292,9 @@ void renderUI() {
     break;
   case SENSOR_ERROR:
     renderSensorError();
+    break;
+  case WATER_LOW_ALERT:
+    renderWaterLowAlert();
     break;
   }
 

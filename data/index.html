@@ -1513,8 +1513,16 @@
         // CHART.JS CONFIGURATION & RENDERING
         // ==========================================
         Chart.defaults.color = '#9ca3af';
+        console.log("--- SYSTEM CHECK: The script is running! ---");
         const chartOptions = {
-            responsive: true, maintainAspectRatio: false, animation: false,
+            interaction: {
+                mode: 'nearest',
+                axis: 'x',
+                intersect: false,
+            },
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: false,
             spanGaps: false,
             elements: { point: { radius: 0 }, line: { tension: 0.3 } },
             scales: {
@@ -1529,8 +1537,8 @@
                     }
                 },
                 yPower: { position: 'left', title: { display: true, text: 'Pump (%)', color: '#d97736' }, min: 0, max: 100 },
-                yFlow: { position: 'right', title: { display: true, text: 'Flow (g/s)', color: '#3b82f6' }, min: 0, max: 8 },
-                yTemp: { position: 'right', title: { display: true, text: 'Temp (°C)', color: '#ef4444' }, min: 80, max: 105 }
+                yFlow: { position: 'left', title: { display: true, text: 'Flow (g/s)', color: '#3b82f6' }, min: 0, max: 5 },
+                yTemp: { position: 'right', title: { display: true, text: 'Temp (°C)', color: '#ef4444' }, min: 85, max: 95 },
             }
         };
 

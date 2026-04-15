@@ -1,4 +1,5 @@
 #include "web.h"
+#include <Update.h>
 
 AsyncWebServer server(80);
 AsyncWebSocket ws("/ws");
@@ -143,8 +144,13 @@ void initWebServer() {
   ws.onEvent(handleWebSocketEvent);
   server.addHandler(&ws);
 
-  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
-    request->send(LittleFS, "/index.html", "text/html");
+  server.on("/", HTTP_GET | HTTP_HEAD, [](AsyncWebServerRequest *request) {
+    if (request->method() == HTTP_HEAD) {
+      // Just send headers back, no body. Very fast!
+      request->send(200);
+    } else {
+      request->send(LittleFS, "/index.html", "text/html");
+    }
   });
   server.on("/profiles.json", HTTP_GET, [](AsyncWebServerRequest *request) {
     request->send(LittleFS, "/profiles.json", "application/json");
@@ -201,6 +207,46 @@ void initWebServer() {
           }
         }
       });
+
+  // OTA Update Interface
+  server.on("/ota", HTTP_GET, [](AsyncWebServerRequest *request) {
+    String html = "<html><body><h2>Firmware Update</h2>"
+                  "<form method='POST' action='/ota' enctype='multipart/form-data'>"
+                  "<input type='file' accept='.bin' name='firmware'><br><br>"
+                  "<input type='submit' value='Update'></form></body></html>";
+    request->send(200, "text/html", html);
+  });
+
+  server.on("/ota", HTTP_POST, [](AsyncWebServerRequest *request) {
+    bool shouldReboot = !Update.hasError();
+    AsyncWebServerResponse *response = request->beginResponse(200, "text/plain", shouldReboot ? "OK - Rebooting..." : "FAIL");
+    response->addHeader("Connection", "close");
+    request->send(response);
+    if (shouldReboot) {
+      delay(100);
+      ESP.restart(); // Software restart
+    }
+  }, [](AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
+    if (!index) {
+      Serial.printf("OTA Update Start: %s\n", filename.c_str());
+      // Start update process
+      if (!Update.begin((ESP.getFreeSketchSpace() - 0x1000) & 0xFFFFF000)) {
+        Update.printError(Serial);
+      }
+    }
+    if (!Update.hasError()) {
+      if (Update.write(data, len) != len) {
+        Update.printError(Serial);
+      }
+    }
+    if (final) {
+      if (Update.end(true)) {
+        Serial.printf("OTA Update Success: %uB\n", index + len);
+      } else {
+        Update.printError(Serial);
+      }
+    }
+  });
 
   server.begin();
   Serial.println("Web Server Started");

@@ -5,13 +5,11 @@ Sofware:
 
 
 --- ENGINE & CONTROL ---
-- Wifi Manager for access point and wifi management
-- Mapping Pump percentage and Pressure computed based on OPV volume measured
-- PI(D) For pump % in flow control
-- Kickstart" a pump by setting it to 100 for a few hundred milliseconds before
-dropping it down
-
+- Advanced setting entry to set the finetuning of the system: temp offset, flow
+stop factor, min pump percentage + see if any other?
+- Clean Define.h and remove all the default values unused
 --- HARDWARE & INTEGRATION ---
+
 - Which power supply?
 
 
@@ -20,13 +18,19 @@ Before Production:
 - Update scale initials parameters / put them in define
 - Integrate PID close to XMP7100 values
 https://gemini.google.com/app/a45d001951bd94d5
-- Test minimum pump percentage
+- Test minimum pump percentage in the settings with a flat profile
+- Tuning Strategy for pump weighted propotional
+  - Set FLOW_KP to 1.0. Run a shot.
+  - If it takes too long to reach the target flow, increase FLOW_KP to 2.0,
+then 3.0.
+  - If the pump output starts surging up and down in waves (oscillating), your
+FLOW_KP is too high! Back it down.
 
 
 Roadmap and low priority:
-- Water level sensor
 - Estimate the pressure based on flow rate and pump curve (estimated empirically
-with OPV valve)
+with OPV valve) / Mapping Pump percentage and Pressure computed based on OPV
+volume measured
 - Possible to migrate to a touch screen?
 - Integration HA for machine readiness notification
 
@@ -36,6 +40,7 @@ with OPV valve)
 #include "Globals.h"
 #include "Hardware.h"
 #include "Web.h"
+#include <ESPAsyncWiFiManager.h>
 
 // --- Forward Declarations ---
 void loadSettings();
@@ -81,8 +86,25 @@ void displayTaskCode(void *pvParameters) {
 void setup() {
   Serial.begin(115200);
 
-  initWiFi(SECRET_SSID, SECRET_PASS);
-  initWebServer();
+  {
+    AsyncWebServer wifiManagerServer(80);
+    DNSServer dns;
+    AsyncWiFiManager wm(&wifiManagerServer, &dns);
+
+    wm.setConnectTimeout(30);
+    if (!wm.autoConnect("Silvia-AP")) {
+      Serial.println("Timeout hit. Moving on...");
+    } else {
+      Serial.println("WiFi connected!");
+    }
+  }
+
+  if (WiFi.status() == WL_CONNECTED) {
+    initWebServer();
+  } else {
+    Serial.println("WiFi NOT connected. Web Server skipped.");
+  }
+
   configTzTime(TZ_INFO, ntpServer);
 
   initHardware();
@@ -115,6 +137,13 @@ void loop() {
   handleHeater();
   updateWeight();
   updateBrewCycle();
+  checkWaterLevel();
+
+  if ((currentState == WARMING || currentState == HOME) && isWaterLow &&
+      !waterLowDismissed && currentState != WATER_LOW_ALERT) {
+    currentState = WATER_LOW_ALERT;
+  }
+
   handleScreensaver();
   if (!isScreenAsleep) {
     handleButtonLogic();
@@ -134,6 +163,7 @@ void updateActiveSettings() {
   activeSettings[activeSettingsCount++] = FLOW_FACT;
   activeSettings[activeSettingsCount++] = TGT_TEMP;
   activeSettings[activeSettingsCount++] = TEMP_OFF;
+  activeSettings[activeSettingsCount++] = PUMP_MIN;
   activeSettings[activeSettingsCount++] = SCALE_MODE;
   activeSettings[activeSettingsCount++] = EXIT_MENU;
 
@@ -170,6 +200,7 @@ void loadSettings() {
   coffeeWeight = prefs.getFloat("dCoffeeWeight", DEFAULT_COFFEE_WEIGHT);
   ratio = prefs.getFloat("dRatio", DEFAULT_RATIO);
   flowStopFactor = prefs.getFloat("dflowStopFactor", DEFAULT_FLOW_STOP_FACTOR);
+  minPumpPercentage = prefs.getInt("minPump", 30);
 
   lastShotWeight = prefs.getFloat("lShtWght", 0.0);
   lastShotTime = prefs.getFloat("lShtTime", 0.0);
@@ -257,12 +288,28 @@ void updateBrewCycle() {
     float instantFlow = (rawCurrentWeight - previousRawWeight) / dt;
     if (isnan(instantFlow) || isinf(instantFlow) || instantFlow < 0)
       instantFlow = 0;
-    currentFlowRate = (currentFlowRate * (1.0 - EMA_ALPHA_FLOW)) +
-                      (instantFlow * EMA_ALPHA_FLOW);
+    // Dynamic EMA Logic
+    float flowDifference = abs(instantFlow - currentFlowRate);
+    float dynamicAlpha;
+
+    // Adaptive thresholding: Fast reaction for big changes, smooth for noise
+    if (flowDifference > 1.5) {
+      dynamicAlpha = 0.8;
+    } else if (flowDifference > 0.5) {
+      dynamicAlpha = 0.4;
+    } else {
+      dynamicAlpha = EMA_ALPHA_FLOW;
+    }
+
+    currentFlowRate =
+        (currentFlowRate * (1.0 - dynamicAlpha)) + (instantFlow * dynamicAlpha);
+
     if (isnan(currentFlowRate) || isinf(currentFlowRate))
       currentFlowRate = 0;
+
     previousRawWeight = rawCurrentWeight;
     previousWeightTime = now;
+    newScaleReadingAvailable = true;
   }
 
   // Global Target Exit Condition
@@ -315,10 +362,20 @@ void updateBrewCycle() {
         targetFlow = currentProfile.phase2.start +
                      (currentProfile.phase2.end - currentProfile.phase2.start) *
                          progress;
-        if (currentFlowRate < targetFlow)
-          setPumpPercentage(min((int)currentPumpPercentage + 2, 100));
-        else if (currentFlowRate > targetFlow)
-          setPumpPercentage(max((int)currentPumpPercentage - 2, 1));
+        if (newScaleReadingAvailable) {
+          newScaleReadingAvailable = false;
+          float error = targetFlow - currentFlowRate;
+          float adjustment = error * FLOW_KP;
+          adjustment = constrain(adjustment, -MAX_ADJUSTMENT, MAX_ADJUSTMENT);
+          float newPumpTarget = currentPumpPercentage + adjustment;
+          if (targetFlow > 0.5 && newPumpTarget < MIN_PUMP_PERCENTAGE) {
+            newPumpTarget = MIN_PUMP_PERCENTAGE;
+          }
+          newPumpTarget = constrain(newPumpTarget, 1.0f, MAX_PUMP_PERCENTAGE);
+          if ((int)newPumpTarget != (int)currentPumpPercentage) {
+            setPumpPercentage((int)newPumpTarget);
+          }
+        }
       } else {
         targetPower =
             currentProfile.phase2.start +
@@ -347,10 +404,20 @@ void updateBrewCycle() {
         targetFlow = currentProfile.phase3.start +
                      (currentProfile.phase3.end - currentProfile.phase3.start) *
                          progress;
-        if (currentFlowRate < targetFlow)
-          setPumpPercentage(min((int)currentPumpPercentage + 2, 100));
-        else if (currentFlowRate > targetFlow)
-          setPumpPercentage(max((int)currentPumpPercentage - 2, 1));
+        if (newScaleReadingAvailable) {
+          newScaleReadingAvailable = false;
+          float error = targetFlow - currentFlowRate;
+          float adjustment = error * FLOW_KP;
+          adjustment = constrain(adjustment, -MAX_ADJUSTMENT, MAX_ADJUSTMENT);
+          float newPumpTarget = currentPumpPercentage + adjustment;
+          if (targetFlow > 0.5 && newPumpTarget < MIN_PUMP_PERCENTAGE) {
+            newPumpTarget = MIN_PUMP_PERCENTAGE;
+          }
+          newPumpTarget = constrain(newPumpTarget, 1.0f, MAX_PUMP_PERCENTAGE);
+          if ((int)newPumpTarget != (int)currentPumpPercentage) {
+            setPumpPercentage((int)newPumpTarget);
+          }
+        }
       } else {
         targetPower =
             currentProfile.phase3.start +
@@ -385,9 +452,6 @@ void updateBrewCycle() {
       histTemp[histCount] = currentTemp;
       histCount++;
     }
-    Serial.printf("Shot Time: %.1fs | State: %s | Free Heap: %u\n",
-                  totalElapsed, (currentState == EXTRACTION) ? "EXT" : "DONE",
-                  ESP.getFreeHeap());
   }
 
   // After the post-shot drip delay finishes, officially exit to home/warming
@@ -445,6 +509,12 @@ void handleShortClick() {
     currentState = HOME;
     encoder.setCount(coffeeWeight * 40);
     break;
+  case WATER_LOW_ALERT:
+    waterLowDismissed = true;
+    warmingOverridden = false;
+    currentState = (currentTemp >= (pidSet - TEMP_MARGIN)) ? HOME : WARMING;
+    encoder.setCount(coffeeWeight * 40);
+    break;
   case HOME:
     prefs.putFloat("dCoffeeWeight", coffeeWeight);
     currentState = SET_RATIO;
@@ -486,6 +556,8 @@ void handleShortClick() {
           prefs.putFloat("tTemp", targetTemp);
         if (item == TEMP_OFF)
           prefs.putFloat("dTempOffset", tempOffset);
+        if (item == PUMP_MIN)
+          prefs.putInt("minPump", minPumpPercentage);
 
         encoder.setCount(currentSettingIndex * 4);
       } else {
@@ -498,6 +570,8 @@ void handleShortClick() {
           encoder.setCount(targetTemp * 4);
         if (item == TEMP_OFF)
           encoder.setCount(tempOffset * 40);
+        if (item == PUMP_MIN)
+          encoder.setCount(minPumpPercentage * 4);
       }
     }
     break;
@@ -505,9 +579,12 @@ void handleShortClick() {
 }
 
 void handleLongPress() {
-  if (currentState == WARMING || currentState == HOME || currentState == DONE) {
+  if (currentState == WARMING || currentState == HOME || currentState == DONE ||
+      currentState == WATER_LOW_ALERT) {
     if (currentState == DONE)
       finishShot();
+    if (currentState == WATER_LOW_ALERT)
+      waterLowDismissed = true;
 
     refreshProfileList(); // Reload the JSON file list before entering menu
 
@@ -564,6 +641,11 @@ void handleEncoderLogic() {
         flowStopFactor = rawCount / 40.0f;
       if (item == TEMP_OFF)
         tempOffset = rawCount / 40.0f;
+      if (item == PUMP_MIN) {
+        minPumpPercentage = constrain(menuCount, 0, 50);
+        if (menuCount != minPumpPercentage)
+          encoder.setCount(minPumpPercentage * 4);
+      }
 
       if (item == PROFILE_SEL) {
         if (numAvailableProfiles > 0) {

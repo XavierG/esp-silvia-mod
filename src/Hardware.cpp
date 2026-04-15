@@ -35,6 +35,7 @@ void initHardware() {
   pinMode(SSR_VALVE, OUTPUT);
   pinMode(SSR_HEATER, OUTPUT);
   pinMode(ENCODER_SW, INPUT_PULLUP);
+  pinMode(WATER_LEVEL_PIN, INPUT_PULLUP);
 
   pumpDimmer.begin(NORMAL_MODE, ON);
   pumpDimmer.setPower(
@@ -98,14 +99,37 @@ void waitForTemperatureSensor() {
 void setPump(bool state) { digitalWrite(SSR_PUMP, state ? HIGH : LOW); }
 
 void setPumpPercentage(uint8_t percentage) {
+  static unsigned long pumpStartTime = 0;
+  static bool isPumping = false;
+
   if (percentage == 0) {
     setPump(false);
     pumpDimmer.setPower(0);
     currentPumpPercentage = 0;
+    isPumping = false;
   } else {
-    setPump(true);
-    uint8_t mappedPower = map(percentage, 1, 100, MIN_PUMP_PERCENTAGE, 100);
-    pumpDimmer.setPower(mappedPower);
+    unsigned long now = millis();
+    if (!isPumping) {
+      isPumping = true;
+      pumpStartTime = now;
+      setPump(true);
+    }
+
+    unsigned long elapsed = now - pumpStartTime;
+    uint8_t mappedTargetPower = map(percentage, 1, 100, minPumpPercentage, 100);
+
+    if (elapsed < 200) {
+      // Kickstart Phase: 100%
+      pumpDimmer.setPower(100);
+    } else if (elapsed < 400) {
+      // Smoothing Phase: 200ms linear ramp down to mappedTargetPower
+      float progress = (elapsed - 200) / 200.0f;
+      uint8_t smoothedPower = 100 - (100 - mappedTargetPower) * progress;
+      pumpDimmer.setPower(smoothedPower);
+    } else {
+      // Normal Operation
+      pumpDimmer.setPower(mappedTargetPower);
+    }
     currentPumpPercentage = percentage;
   }
 }
@@ -282,6 +306,23 @@ void handleHeater() {
       setHeater(true); // Safety Turbo: Full on if significantly under target
     } else {
       setHeater(pidOut > (now - windowStartTime));
+    }
+  }
+}
+
+void checkWaterLevel() {
+  static unsigned long lastCheckTime = 0;
+  if (millis() - lastCheckTime > 500) {
+    lastCheckTime = millis();
+    // XKC-Y25-NPN: Open collector. Pulled up, so LOW = water detected, HIGH =
+    // no water.
+    bool newIsLow = (digitalRead(WATER_LEVEL_PIN) == HIGH);
+    if (newIsLow != isWaterLow) {
+      isWaterLow = newIsLow;
+      if (!isWaterLow) {
+        // Reset dismissed state when water is refilled
+        waterLowDismissed = false;
+      }
     }
   }
 }
